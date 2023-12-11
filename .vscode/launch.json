@@ -8,8 +8,8 @@
       "args": [],
       "stopAtEntry": false,
       "externalConsole": false,
-      "cwd": "/home/erfeixia/gitsrc/AssemblySimulator",
-      "program": "/home/erfeixia/gitsrc/AssemblySimulator/build/Debug/outDebug",
+      "cwd": "/Users/tvuanywhere/Documents/github/AssemblySimulator/src",
+      "program": "/Users/tvuanywhere/Documents/github/AssemblySimulator/src/build/Debug/outDebug",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [
