@@ -22,7 +22,7 @@ EXECUTABLE = csapp
 SRC_DIR = ./src
 OUTPUT_DIR = ./build
 INCS := $(foreach dir,$(SRC_DIR),-I$(dir))
-code_dirs = $(SRC_DIR)/cpu $(SRC_DIR)/memory $(SRC_DIR)
+code_dirs = $(SRC_DIR)/cpu $(SRC_DIR)/memory $(SRC_DIR)/disk $(SRC_DIR)
 code_srcs = $(foreach dir, $(code_dirs), $(wildcard $(dir)/*.c))
 code_objs = $(patsubst %.c,$(OUTPUT_DIR)/%.o,$(code_srcs))
 
@@ -31,7 +31,6 @@ $(EXECUTABLE) : $(code_objs)
 	$(CC) $(code_objs) -o $@
 
 $(OUTPUT_DIR)/%.o: %.c
-	@echo "c=$< o=$@"
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -I$(SRC_DIR) -c $< -o $@
 

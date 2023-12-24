@@ -2,6 +2,5 @@
     "files.associations": {
         "dram.h": "c",
         "instruction.c": "c",
-        "instruction.h": "c"
     }
 }
