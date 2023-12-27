@@ -2,5 +2,9 @@
     "files.associations": {
         "dram.h": "c",
         "instruction.c": "c",
-    }
+    },
+    "cSpell.ignoreWords": [
+        "NUM_INSTRTYPE"
+    ],
+    "C_Cpp.inlayHints.parameterNames.enabled": true
 }

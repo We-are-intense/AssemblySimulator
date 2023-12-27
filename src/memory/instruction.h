@@ -22,17 +22,17 @@ typedef enum OP
 typedef enum OD_TYPE
 {
     EMPTY,
-    IMM, 
-    REG, 
-    MM_IMM, 
-    MM_REG, 
-    MM_IMM_REG, 
-    MM_REG1_REG2, 
-    MM_IMM_REG1_REG2, 
-    MM_REG2_S, 
-    MM_IMM_REG2_S, 
-    MM_REG1_REG2_S, 
-    MM_IMM_REG1_REG2_S
+    IMM, /* $0x123 立即数 */
+    REG, /* rax 寄存器寻址 */
+    MM_IMM, /*Imm 绝对寻址 M[Imm] */
+    MM_REG, /* (rax) 间接寻址 */
+    MM_IMM_REG, /* M[Imm + REG] (基址 + 偏移量) 寻址 */
+    MM_REG1_REG2, /* M[REG1 + REG2] 变址寻址 */
+    MM_IMM_REG1_REG2, /* M[Imm + REG1 + REG2] 变址寻址 */
+    MM_REG2_S, /* M[REG2 * s] 比例变址寻址 */
+    MM_IMM_REG2_S, /* M[REG2 * s] 比例变址寻址 */
+    MM_REG1_REG2_S, /* M[REG1 + REG2 * s] 变址寻址 */
+    MM_IMM_REG1_REG2_S /* M[Imm + REG1 + REG2 * s] 变址寻址 */
 } od_type_t;
 
 typedef struct OD

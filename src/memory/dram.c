@@ -14,7 +14,6 @@ uint64_t read64bits_dram(uint64_t paddr) {
     val += (((uint64_t)mm[paddr + 5 ]) << 40);
     val += (((uint64_t)mm[paddr + 6 ]) << 48);
     val += (((uint64_t)mm[paddr + 7 ]) << 56);
-
     return val;
 }
 

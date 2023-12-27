@@ -11,7 +11,6 @@ int main(int argc, char const *argv[]) {
     // instruction_cycle();
     uint64_t address = va2pa(0x1000);
     printf("address: 0x%llx\n", address);
-
     
     return 0;
 }
