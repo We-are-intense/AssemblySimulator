@@ -1,7 +1,7 @@
 {
     "files.associations": {
         "dram.h": "c",
-        "instruction.c": "c",
+        "instruction.c": "c"
     },
     "cSpell.ignoreWords": [
         "NUM_INSTRTYPE"
