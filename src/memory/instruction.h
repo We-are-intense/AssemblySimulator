@@ -1,5 +1,4 @@
-#ifndef _INSTRUCTION_H_
-#define _INSTRUCTION_H_
+#pragma once
 
 #include <stdio.h>
 #include <stdint.h>
@@ -73,5 +72,3 @@ void pop_reg_handler(uint64_t src, uint64_t dst);
 void call_handler(uint64_t src, uint64_t dst);
 void add_reg_reg_handler(uint64_t src, uint64_t dst);
 void ret_handler(uint64_t src, uint64_t dst);
-
-#endif // !_INSTRUCTION_H_

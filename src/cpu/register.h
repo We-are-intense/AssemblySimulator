@@ -1,5 +1,4 @@
-#ifndef _REGISTER_H_
-#define _REGISTER_H_
+#pragma once
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -29,6 +28,3 @@ typedef struct REG_STRUCT
 } reg_t;
 
 extern reg_t reg;
-
-
-#endif // !_REGISTER_H_

@@ -10,7 +10,7 @@ int main(int argc, char const *argv[]) {
     init_handler_table();
     // instruction_cycle();
     uint64_t address = va2pa(0x1000);
-    printf("address: 0x%llx\n", address);
+    printf("address: 0x%lx\n", address);
     
     return 0;
 }

@@ -1,5 +1,4 @@
-#ifndef _DRAM_H_
-#define _DRAM_H_
+#pragma once
 
 #include <stdint.h>
 
@@ -11,6 +10,4 @@ uint64_t read64bits_dram(uint64_t paddr);
 uint64_t read64bits_dram_virtual(uint64_t vaddr);
 void write64bits_dram(uint64_t paddr, uint64_t data);
 void write64bits_dram_virtual(uint64_t vaddr, uint64_t data);
-
-#endif // !_DRAM_H_
 

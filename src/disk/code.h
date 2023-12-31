@@ -1,5 +1,4 @@
-#ifndef _CODE_H_
-#define _CODE_H_
+#pragma once
 
 #include <stdint.h>
 #include <stdio.h>
@@ -8,6 +7,3 @@
 #define INST_LEN 15
 
 extern inst_t program[INST_LEN];
-
-
-#endif // !_CODE_H_
