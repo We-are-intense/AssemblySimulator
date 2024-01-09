@@ -15,7 +15,7 @@ else
     $(error Unknown operating system)
 endif
 
-CFLAGS = -Wall -g -O2 -Werror -std=gnu99 -Wno-unused-function
+CFLAGS = -Wall -ggdb -Werror -std=gnu99 -Wno-unused-function
 
 EXECUTABLE = csapp
 
@@ -41,5 +41,5 @@ run:
 .PHONY: clean
 clean:
 	rm -f *.o *~ $(EXECUTABLE)
-	rm -r $(OUTPUT_DIR) main
+	rm -r $(OUTPUT_DIR)
 

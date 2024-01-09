@@ -4,6 +4,13 @@
 handler_t handler_table[NUM_INSTRTYPE];
 
 // Private Methods
+static void parse_instruction(inst_t *inst, const char *str) {
+    printf("str: %s\n", str);
+    
+
+
+}
+
 static uint64_t decode_od(od_t od) {
     if (od.type == IMM) {
         return *((uint64_t *)&od.imm);
@@ -104,11 +111,15 @@ void init_handler_table() {
 }
 
 void instruction_cycle() {
-    inst_t *instr = (inst_t *)reg.rip;
+    const char *inst_str = (const char *)reg.rip;
+    inst_t instr;
+    parse_instruction(&instr, inst_str);
 
-    uint64_t src = decode_od(instr->src);
-    uint64_t dst = decode_od(instr->dst);
 
-    handler_t handler = handler_table[instr->op];
+    return;
+    uint64_t src = decode_od(instr.src);
+    uint64_t dst = decode_od(instr.dst);
+
+    handler_t handler = handler_table[instr.op];
     handler(src, dst);
 }
