@@ -1,10 +1,13 @@
 {
     "files.associations": {
         "dram.h": "c",
-        "instruction.c": "c"
+        "instruction.c": "c",
+        "register.h": "c",
+        "assert.h": "c"
     },
     "cSpell.ignoreWords": [
         "NUM_INSTRTYPE"
     ],
-    "C_Cpp.inlayHints.parameterNames.enabled": true
+    "C_Cpp.inlayHints.parameterNames.enabled": true,
+    "C_Cpp.errorSquiggles": "enabled"
 }
