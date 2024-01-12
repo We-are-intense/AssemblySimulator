@@ -24,6 +24,13 @@ typedef struct Parse_inst_state
     // 当前在解析的状态
     parse_state state;    
 } parse_inst_t;
+static inline int is_num(char c) {
+    return (c >= '0' && c <= '9');
+}
+
+static inline int is_char(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
 
 static inline void parse_next(const char *str, parse_inst_t *pit) {
     if (str[pit->offset] == '\0') {
@@ -42,9 +49,64 @@ static inline void parse_remove_white_space(const char *str, parse_inst_t *pit) 
     pit->start = offset;
     pit->offset = offset;
 }
-
-static void parse_number(const char *str, parse_inst_t *pit, char *result) {
-
+/*
+*   解析数字
+*   return type:
+*  -1: 解析出错
+*   0: 立即数 $123, $0x12, $-123, $-0x12
+*   1: 绝对寻址 123, 0x12, -123
+*   2: 变址寻址 mov 0x12(%rax), mov 0x12(%rsi, %rdi), %rax
+* */
+static int parse_number(const char *str, parse_inst_t *pit, int64_t *value) {
+    parse_remove_white_space(str, pit);
+    int start = pit->start, offset = pit->offset;
+    int type = -1;
+    char c = str[offset];
+    if (c == '\0') return -1;
+    if (c == '$') {
+        // 跳过 '$'
+        parse_next(str, pit);
+        int is_hex = 0;
+        int is_negative = 1; // 是否是负数
+        // mov $0x123, %rax
+        // 立即数只会在源操作上
+        char cc[32] = {'\0'};
+        char c1 = str[pit->offset];
+        assert(!(c1 == '\0'));
+        if (c1 == '-') {
+            is_negative = -1;
+            // 跳过负号
+            parse_next(str, pit);
+            c1 = str[pit->offset];
+            assert(!(c1 == '\0'));
+        }
+        char c2 = str[pit->offset + 1];
+        assert(!(c2 == '\0'));
+        if (c1 == '0' && c2 == 'x') {
+            is_hex = 1;
+            // 跳过 '0'
+            parse_next(str, pit);
+            // 跳过 'x'
+            parse_next(str, pit);
+        } else {
+            assert(is_num(c1));
+            cc[0] = c1;
+            if (is_num(c2)) {
+                cc[1] = c2;
+            }
+        }
+        start  = pit->start - (is_hex ? 2 : 0);
+        offset = pit->offset;
+        c1 = str[offset];
+        while (is_num(c1) || is_char(c1)) {
+            cc[offset - start] = c1;
+            offset ++;
+        }
+        parse_remove_white_space(str, pit);
+        c1 = str[pit->offset];
+        assert(c1 == ',');
+    }
+    return type;
 }
 
 static void parse_string(const char *str, parse_inst_t *pit, char *result) {
@@ -62,6 +124,27 @@ static void parse_string(const char *str, parse_inst_t *pit, char *result) {
     }
     pit->start  = offset;
     pit->offset = offset;
+} 
+/*
+*   解析变址寻址
+*   return type:
+*  -1: 解析出错
+*   0: mov (%rax),     %rdx         --> first = rax
+*      mov 0x12(%rax), %rdx         --> first = rax
+*   2: mov (%rsi, %rdi), %rax       --> first = rsi, second = rdi 
+*      mov 0x12(%rsi, %rdi), %rax   --> first = rsi, second = rdi 
+*   3: mov (, %rdi, 2), %rax        --> first =    , second = rdi, scale = 2
+*      mov 0x12(, %rdi, 2), %rax    --> first =    , second = rdi, scale = 2
+*   4: mov (%rsi, %rdi, 2), %rax    --> first = rsi, second = rdi, scale = 2
+*      mov 0x12(%rsi, %rdi, 2), %rax
+* */
+static int parse_index_addressing(const char *str, 
+                                   parse_inst_t *pit, 
+                                   char *first, 
+                                   char *second, 
+                                   int  *scale) {
+
+    return -1;
 }
 
 static void parse_inst_str(inst_t *inst, const char *str, parse_inst_t *pit) {
@@ -76,7 +159,7 @@ static void parse_inst_str(inst_t *inst, const char *str, parse_inst_t *pit) {
         char c = str[pit->offset];
         assert(!(c == '\0'));
         if (c == '%') {
-            // mov %rax, xxx
+            // mov %rax, %rdi
             char cc[8] = {'\0'};
             parse_next(str, pit);
             parse_string(str, pit, cc);
@@ -92,6 +175,41 @@ static void parse_inst_str(inst_t *inst, const char *str, parse_inst_t *pit) {
                 printf("dst token: %%%s\n", cc);
                 pit->inst_state = 3;
             }
+        } else if (c == '-' || c == '$' || 
+                  (c >= 'a' && c <= 'z') || 
+                  (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9')) {
+            // 解析数字
+            int64_t value = 0;
+            //-1: 解析出错
+            // 0: 立即数 $123, $0x12, $-123, $-0x12
+            // 1: 绝对寻址 123, 0x12, -123
+            // 2: 变址寻址 mov 0x12(%rax), mov 0x12(%rsi, %rdi), %rax
+            int num_type = parse_number(str, pit, &value);
+            if (num_type == 0 || num_type == 1) {
+                pit->inst_state = state + 1;
+                return;
+            }
+            // 3: 变址寻址 mov 0x12(%rax), mov 0x12(%rsi, %rdi), %rax
+            char first[8]  = {'\0'};
+            char second[8] = {'\0'};
+            int scale = 1;
+            // 解析变址寻址
+            // return type:
+            //-1: 解析出错
+            // 0: mov (%rax),     %rdx         --> first = rax
+            //    mov 0x12(%rax), %rdx         --> first = rax
+            // 2: mov (%rsi, %rdi), %rax       --> first = rsi, second = rdi 
+            //    mov 0x12(%rsi, %rdi), %rax   --> first = rsi, second = rdi 
+            // 3: mov (, %rdi, 2), %rax        --> first =    , second = rdi, scale = 2
+            //    mov 0x12(, %rdi, 2), %rax    --> first =    , second = rdi, scale = 2
+            // 4: mov (%rsi, %rdi, 2), %rax    --> first = rsi, second = rdi, scale = 2
+            //    mov 0x12(%rsi, %rdi, 2), %rax
+            num_type = parse_index_addressing(str, pit, 
+                                              first, second, &scale);
+            printf("index address: first:%s secode=%s scale=%d\n", 
+                   first, second, scale);
+            pit->inst_state = state + 1;
         }
     }
 }
@@ -217,4 +335,10 @@ void instruction_cycle() {
 
     handler_t handler = handler_table[instr.op];
     handler(src, dst);
+}
+
+void test_parse_inst(uint64_t value) {
+    const char *inst_str = (const char *)value;
+    inst_t instr;
+    parse_instruction(&instr, inst_str);
 }

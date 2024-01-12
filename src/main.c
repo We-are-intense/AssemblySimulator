@@ -46,7 +46,7 @@ int main(int argc, char const *argv[]) {
     sprintf(assembly[13], "callq  $%p", &assembly[0]);
     for (int i = 0; i < 15; i++)
     {
-        instruction_cycle();
+        test_parse_inst((uint64_t)&assembly[i]);
     }
     
     return 0;

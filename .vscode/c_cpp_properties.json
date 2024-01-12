@@ -9,9 +9,18 @@
       "macFrameworkPath": [
         "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks"
       ],
-      "cStandard": "c17",
+      "cStandard": "c11",
       "intelliSenseMode": "macos-clang-x64",
       "configurationProvider": "ms-vscode.makefile-tools"
+    },
+    {
+        "name": "ubuntu",
+        "includePath": [
+            "${workspaceFolder}/**"
+        ],
+        "cStandard": "c11",
+        "intelliSenseMode": "gcc-x64",
+        "configurationProvider": "ms-vscode.makefile-tools"
     }
   ],
   "version": 4

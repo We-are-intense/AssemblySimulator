@@ -1,0 +1,110 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-ggdb",
+      "-Werror",
+      "-std=gnu99",
+      "-Wno-unused-function",
+      "-I./src",
+      "-c",
+      "-o",
+      "build/./src/cpu/mmu.o",
+      "src/cpu/mmu.c"
+    ],
+    "directory": "/home/erfeixia/gitsrc/AssemblySimulator",
+    "file": "/home/erfeixia/gitsrc/AssemblySimulator/src/cpu/mmu.c",
+    "output": "/home/erfeixia/gitsrc/AssemblySimulator/build/src/cpu/mmu.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-ggdb",
+      "-Werror",
+      "-std=gnu99",
+      "-Wno-unused-function",
+      "-I./src",
+      "-c",
+      "-o",
+      "build/./src/cpu/register.o",
+      "src/cpu/register.c"
+    ],
+    "directory": "/home/erfeixia/gitsrc/AssemblySimulator",
+    "file": "/home/erfeixia/gitsrc/AssemblySimulator/src/cpu/register.c",
+    "output": "/home/erfeixia/gitsrc/AssemblySimulator/build/src/cpu/register.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-ggdb",
+      "-Werror",
+      "-std=gnu99",
+      "-Wno-unused-function",
+      "-I./src",
+      "-c",
+      "-o",
+      "build/./src/memory/dram.o",
+      "src/memory/dram.c"
+    ],
+    "directory": "/home/erfeixia/gitsrc/AssemblySimulator",
+    "file": "/home/erfeixia/gitsrc/AssemblySimulator/src/memory/dram.c",
+    "output": "/home/erfeixia/gitsrc/AssemblySimulator/build/src/memory/dram.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-ggdb",
+      "-Werror",
+      "-std=gnu99",
+      "-Wno-unused-function",
+      "-I./src",
+      "-c",
+      "-o",
+      "build/./src/memory/instruction.o",
+      "src/memory/instruction.c"
+    ],
+    "directory": "/home/erfeixia/gitsrc/AssemblySimulator",
+    "file": "/home/erfeixia/gitsrc/AssemblySimulator/src/memory/instruction.c",
+    "output": "/home/erfeixia/gitsrc/AssemblySimulator/build/src/memory/instruction.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-ggdb",
+      "-Werror",
+      "-std=gnu99",
+      "-Wno-unused-function",
+      "-I./src",
+      "-c",
+      "-o",
+      "build/./src/disk/code.o",
+      "src/disk/code.c"
+    ],
+    "directory": "/home/erfeixia/gitsrc/AssemblySimulator",
+    "file": "/home/erfeixia/gitsrc/AssemblySimulator/src/disk/code.c",
+    "output": "/home/erfeixia/gitsrc/AssemblySimulator/build/src/disk/code.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-ggdb",
+      "-Werror",
+      "-std=gnu99",
+      "-Wno-unused-function",
+      "-I./src",
+      "-c",
+      "-o",
+      "build/./src/main.o",
+      "src/main.c"
+    ],
+    "directory": "/home/erfeixia/gitsrc/AssemblySimulator",
+    "file": "/home/erfeixia/gitsrc/AssemblySimulator/src/main.c",
+    "output": "/home/erfeixia/gitsrc/AssemblySimulator/build/src/main.o"
+  }
+]

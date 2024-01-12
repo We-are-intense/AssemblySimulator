@@ -1,13 +1,12 @@
 {
-    "files.associations": {
-        "dram.h": "c",
-        "instruction.c": "c",
-        "register.h": "c",
-        "assert.h": "c"
-    },
     "cSpell.ignoreWords": [
         "NUM_INSTRTYPE"
     ],
     "C_Cpp.inlayHints.parameterNames.enabled": true,
-    "C_Cpp.errorSquiggles": "enabled"
+    "C_Cpp.errorSquiggles": "enabled",
+    "workbench.colorCustomizations": {
+        "editorInlayHint.foreground": "#d67272"
+    },
+    "editor.inlayHints.enabled": "on",
+    "C_Cpp.inlayHints.parameterNames.suppressWhenArgumentContainsName": true
 }

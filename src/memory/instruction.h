@@ -56,7 +56,7 @@ typedef void (*handler_t)(uint64_t, uint64_t);
 
 extern handler_t handler_table[NUM_INSTRTYPE];
 
-
+void test_parse_inst(uint64_t value);
 void init_handler_table();
 void instruction_cycle();
 

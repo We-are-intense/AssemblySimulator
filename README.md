@@ -10,6 +10,9 @@ make
 make run
 ```
 
+函数跳转: 使用 `bear -- make` 生成 `compile_commands.json` 
+
+
 # 参考
 
 1. [bcst_csapp](https://github.com/yangminz/bcst_csapp)
