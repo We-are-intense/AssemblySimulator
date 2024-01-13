@@ -21,8 +21,8 @@ typedef struct Parse_inst_state
     int start;
     // 偏移
     int offset;
-    // 当前在解析的状态
-    parse_state state;    
+    int token_num;
+    char tokens[30][64];   
 } parse_inst_t;
 static inline int is_num(char c) {
     return (c >= '0' && c <= '9');
@@ -57,20 +57,26 @@ static inline void parse_remove_white_space(const char *str, parse_inst_t *pit) 
 *   1: 绝对寻址 123, 0x12, -123
 *   2: 变址寻址 mov 0x12(%rax), mov 0x12(%rsi, %rdi), %rax
 * */
-static int parse_number(const char *str, parse_inst_t *pit, int64_t *value) {
+static int parse_number(const char *str, parse_inst_t *pit, char *value) {
     parse_remove_white_space(str, pit);
     int start = pit->start, offset = pit->offset;
     int type = -1;
     char c = str[offset];
     if (c == '\0') return -1;
     if (c == '$') {
+        type = 1;
+    }
+
+    if (c == '$') {
         // 跳过 '$'
         parse_next(str, pit);
         int is_hex = 0;
         int is_negative = 1; // 是否是负数
+        char cc[64] = {'\0'};
         // mov $0x123, %rax
         // 立即数只会在源操作上
-        char cc[32] = {'\0'};
+        // '0' 'x'
+        // c1   c2
         char c1 = str[pit->offset];
         assert(!(c1 == '\0'));
         if (c1 == '-') {
@@ -89,22 +95,37 @@ static int parse_number(const char *str, parse_inst_t *pit, int64_t *value) {
             // 跳过 'x'
             parse_next(str, pit);
         } else {
-            assert(is_num(c1));
+            assert(is_num(c1) || is_char(c1));
             cc[0] = c1;
-            if (is_num(c2)) {
+            if (is_num(c2) || is_char(c2)) {
                 cc[1] = c2;
             }
         }
-        start  = pit->start - (is_hex ? 2 : 0);
+        start  = pit->start - (is_hex ? 0 : 2);
         offset = pit->offset;
         c1 = str[offset];
         while (is_num(c1) || is_char(c1)) {
             cc[offset - start] = c1;
             offset ++;
+            c1 = str[offset];
         }
+        pit->offset = offset;
         parse_remove_white_space(str, pit);
         c1 = str[pit->offset];
         assert(c1 == ',');
+        offset = 0;
+        if (is_negative < 0) {
+            value[offset++] = '-';
+        }
+        if (is_hex) {
+            value[offset++] = '0';
+            value[offset++] = 'x';
+        }
+        start = 0;
+        while (cc[start] != '\0') {
+            value[offset++] = cc[start++];
+        }
+        type = 1;
     }
     return type;
 }
@@ -114,7 +135,7 @@ static void parse_string(const char *str, parse_inst_t *pit, char *result) {
     int start = pit->start, offset = pit->offset;
     char c = str[offset];
     while (c != '\0') {
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'B')) {
+        if (is_char(c)) {
             result[offset - start] = c;
             offset++;
             c = str[offset];
@@ -147,82 +168,72 @@ static int parse_index_addressing(const char *str,
     return -1;
 }
 
-static void parse_inst_str(inst_t *inst, const char *str, parse_inst_t *pit) {
-    int state = pit->inst_state;
-    if (state == 0) {
-        char cc[8] = {'\0'};
-        parse_string(str, pit, cc);
-        parse_remove_white_space(str, pit);
-        printf("parse: 指令: %s\n", cc);
-        pit->inst_state = 1;
-    } else if (state == 1 || state == 2) {
-        char c = str[pit->offset];
-        assert(!(c == '\0'));
-        if (c == '%') {
-            // mov %rax, %rdi
-            char cc[8] = {'\0'};
-            parse_next(str, pit);
-            parse_string(str, pit, cc);
-            parse_remove_white_space(str, pit);
-            if (state == 1) {
-                printf("src token: %%%s\n", cc);
-                c = str[pit->offset];
-                assert((c == ','));   
-                parse_next(str, pit);
-                parse_remove_white_space(str, pit);
-                pit->inst_state = 2;
-            } else if (state == 2) {
-                printf("dst token: %%%s\n", cc);
-                pit->inst_state = 3;
-            }
-        } else if (c == '-' || c == '$' || 
-                  (c >= 'a' && c <= 'z') || 
-                  (c >= 'A' && c <= 'Z') ||
-                  (c >= '0' && c <= '9')) {
-            // 解析数字
-            int64_t value = 0;
-            //-1: 解析出错
-            // 0: 立即数 $123, $0x12, $-123, $-0x12
-            // 1: 绝对寻址 123, 0x12, -123
-            // 2: 变址寻址 mov 0x12(%rax), mov 0x12(%rsi, %rdi), %rax
-            int num_type = parse_number(str, pit, &value);
-            if (num_type == 0 || num_type == 1) {
-                pit->inst_state = state + 1;
-                return;
-            }
-            // 3: 变址寻址 mov 0x12(%rax), mov 0x12(%rsi, %rdi), %rax
-            char first[8]  = {'\0'};
-            char second[8] = {'\0'};
-            int scale = 1;
-            // 解析变址寻址
-            // return type:
-            //-1: 解析出错
-            // 0: mov (%rax),     %rdx         --> first = rax
-            //    mov 0x12(%rax), %rdx         --> first = rax
-            // 2: mov (%rsi, %rdi), %rax       --> first = rsi, second = rdi 
-            //    mov 0x12(%rsi, %rdi), %rax   --> first = rsi, second = rdi 
-            // 3: mov (, %rdi, 2), %rax        --> first =    , second = rdi, scale = 2
-            //    mov 0x12(, %rdi, 2), %rax    --> first =    , second = rdi, scale = 2
-            // 4: mov (%rsi, %rdi, 2), %rax    --> first = rsi, second = rdi, scale = 2
-            //    mov 0x12(%rsi, %rdi, 2), %rax
-            num_type = parse_index_addressing(str, pit, 
-                                              first, second, &scale);
-            printf("index address: first:%s secode=%s scale=%d\n", 
-                   first, second, scale);
-            pit->inst_state = state + 1;
-        }
+static void parse_inst_token(inst_t *inst, parse_inst_t *pit) {
+
+}
+
+static void parse_to_token(const char *str, parse_inst_t *pit) {
+    if (str[pit->offset] == '\0') {
+        return;
     }
+    int index = 0, offset = 0;
+    char c = str[offset];
+    int token_num = pit->token_num;
+    while (c != '\0') {
+        switch (c)
+        {
+            case ' ':
+            {
+                if (pit->tokens[token_num][0] != '\0') {
+                    token_num++;
+                    index = 0;
+                }
+                break;
+            }
+            case '(':
+            case ')':
+            case ',':
+            {
+                if (pit->tokens[token_num][0] != '\0') {
+                    token_num++;index = 0;
+                    pit->tokens[token_num][index] = c;
+                    token_num++;index = 0;
+                }
+                break;
+            }
+            default:
+            {
+                pit->tokens[token_num][index++] = c;
+                break;
+            }
+        }
+        offset++;
+        c = str[offset];
+    }
+    if (pit->tokens[token_num][0] == '\0') {
+        token_num -= 1;
+    }
+    pit->token_num = token_num;
 }
 
 static void parse_instruction(inst_t *inst, const char *str) {
-    parse_inst_t pit = {0};
+    parse_inst_t pit = {
+        .inst_state = 0,
+        .offset = 0,
+        .start = 0,
+        .token_num = 0,
+        .tokens = {{'\0'}}
+    };
     printf("parse: %s\n", str);
+    parse_to_token(str, &pit);
+    printf("tokens: ");
+    for (int i = 0; i <= pit.token_num; i++)
+    {
+        printf("<%s>  ",pit.tokens[i]);
+    }
+    printf("\n");
     // 解析指令
-    parse_inst_str(inst, str, &pit);
-    // 解析源操作
-    parse_inst_str(inst, str, &pit);
-    // 解析目的操作
-    parse_inst_str(inst, str, &pit);
+    parse_inst_token(inst, &pit);
 }
 
 static uint64_t decode_od(od_t od) {

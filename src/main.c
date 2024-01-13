@@ -19,13 +19,12 @@ int main(int argc, char const *argv[]) {
     reg.rsp = 0x7ffffffee0f0;
 
     write64bits_dram_virtual(0x7ffffffee110, 0x0000000000000000);    // rbp
-    printf("hello world !\n");
     write64bits_dram_virtual(0x7ffffffee108, 0x0000000000000000);
     write64bits_dram_virtual(0x7ffffffee100, 0x0000000012340000);
     write64bits_dram_virtual(0x7ffffffee0f8, 0x000000000000abcd);
     write64bits_dram_virtual(0x7ffffffee0f0, 0x0000000000000000);    // rsp
-
-    char assembly[15][64] = {
+#define Inst_Num 16
+    char assembly[Inst_Num][64] = {
         "push   %rbp",              // 0
         "mov    %rsp,%rbp",         // 1
         "mov    %rdi,-0x18(%rbp)",  // 2
@@ -41,10 +40,11 @@ int main(int argc, char const *argv[]) {
         "mov    %rax,%rdi",         // 12
         "callq  0",                 // 13
         "mov    %rax,-0x8(%rbp)",   // 14
+        "mov   -0x12(, %rsi, 8), %rax",              // 0
     };
-    reg.rip = (uint64_t)&assembly[11];
-    sprintf(assembly[13], "callq  $%p", &assembly[0]);
-    for (int i = 0; i < 15; i++)
+    // reg.rip = (uint64_t)&assembly[11];
+    // sprintf(assembly[13], "callq  $%p", &assembly[0]);
+    for (int i = 0; i < Inst_Num; i++)
     {
         test_parse_inst((uint64_t)&assembly[i]);
     }
