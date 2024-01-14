@@ -6,16 +6,17 @@
 
 typedef enum OP 
 {
-    mov_imm_reg,        // 0 mov $0x4050, %eax
-    mov_reg_reg,        // 1 mov %rbp, %rsp
-    mov_mem_reg,        // 2 mov (%rcx), %rax
-    mov_imm_mem,        // 3 mov $0x4050, (%rsp)
-    mov_reg_mem,        // 4 mov %rax, -12(%rbp)
-    push_reg,           // 5
-    pop_reg,            // 6
-    call,               // 7
-    ret,                // 8
-    add_reg_reg,        // 9
+    INST_MOV,           // 0
+    INST_PUSH,          // 1
+    INST_POP,           // 2
+    INST_LEAVE,         // 3
+    INST_CALL,          // 4
+    INST_RET,           // 5
+    INST_ADD,           // 6
+    INST_SUB,           // 7
+    INST_CMP,           // 8
+    INST_JNE,           // 9
+    INST_JMP,           // 10
 } op_t;
 
 typedef enum OD_TYPE
@@ -23,24 +24,24 @@ typedef enum OD_TYPE
     EMPTY,
     IMM, /* $0x123 立即数 */
     REG, /* rax 寄存器寻址 */
-    MM_IMM, /*Imm 绝对寻址 M[Imm] */
-    MM_REG, /* (rax) 间接寻址 */
-    MM_IMM_REG, /* M[Imm + REG] (基址 + 偏移量) 寻址 */
-    MM_REG1_REG2, /* M[REG1 + REG2] 变址寻址 */
-    MM_IMM_REG1_REG2, /* M[Imm + REG1 + REG2] 变址寻址 */
-    MM_REG2_S, /* M[REG2 * s] 比例变址寻址 */
-    MM_IMM_REG2_S, /* M[REG2 * s] 比例变址寻址 */
-    MM_REG1_REG2_S, /* M[REG1 + REG2 * s] 变址寻址 */
-    MM_IMM_REG1_REG2_S /* M[Imm + REG1 + REG2 * s] 变址寻址 */
+    MM_IMM, /* mov 0x123, %rax 绝对寻址 0x123 对应地址内容放到 %rax */
+    MM_REG, /* mov (%rsi), %rax 间接寻址 */
+    MM_IMM_REG, /* mov 0x12(%rsi), %rax M[Imm + REG] (基址 + 偏移量) 寻址 */
+    MM_REG1_REG2, /* mov (%rsi, %rdi), %rax M[REG1 + REG2] 变址寻址 */
+    MM_IMM_REG1_REG2, /* mov 0x12(%rsi, %rdi), %rax M[Imm + REG1 + REG2] 变址寻址 */
+    MM_REG2_S, /* mov (, %rsi, s), %rax M[REG2 * s] 比例变址寻址 */
+    MM_IMM_REG2_S, /* mov 0x12(, %rsi, s), %rax M[Imm + REG2 * s] 比例变址寻址 */
+    MM_REG1_REG2_S, /* mov (%rsi, %rdi, s), %rax M[REG1 + REG2 * s] 比例变址寻址 */
+    MM_IMM_REG1_REG2_S /* mov 0x12(%rsi, %rdi, s), %rax M[Imm + REG1 + REG2 * s] 比例变址寻址 */
 } od_type_t;
 
 typedef struct OD
 {
-    od_type_t type;
-    int64_t imm;
-    int64_t scale;
-    uint64_t *reg1;
-    uint64_t *reg2;
+    od_type_t type; // IMM, REG, MEM
+    uint64_t  imm;  // 立即数
+    uint64_t  s;    // 比例变址寻址,比例因子必须 1，2，4，8
+    uint64_t  reg1; // main src register
+    uint64_t  reg2; // dst register
 } od_t;
 
 typedef struct INSTRUCT_STRUCT
@@ -60,15 +61,11 @@ void test_parse_inst(uint64_t value);
 void init_handler_table();
 void instruction_cycle();
 
-void mov_imm_reg_handler(uint64_t src, uint64_t dst);
-void mov_reg_reg_handler(uint64_t src, uint64_t dst);
-void mov_mem_reg_handler(uint64_t src, uint64_t dst);
-void mov_imm_mem_handler(uint64_t src, uint64_t dst);
-void mov_reg_mem_handler(uint64_t src, uint64_t dst);
+void mov_handler(uint64_t src, uint64_t dst);
+void add_handler(uint64_t src, uint64_t dst);
 
-void push_reg_handler(uint64_t src, uint64_t dst);
-void pop_reg_handler(uint64_t src, uint64_t dst);
+void push_handler(uint64_t src, uint64_t dst);
+void pop_handler(uint64_t src, uint64_t dst);
 
 void call_handler(uint64_t src, uint64_t dst);
-void add_reg_reg_handler(uint64_t src, uint64_t dst);
 void ret_handler(uint64_t src, uint64_t dst);

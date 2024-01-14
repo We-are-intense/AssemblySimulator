@@ -15,7 +15,8 @@ else
     $(error Unknown operating system)
 endif
 
-CFLAGS = -Wall -ggdb -Werror -std=gnu99 -Wno-unused-function
+# CFLAGS = -Wall -ggdb -Werror -std=gnu99 -Wno-unused-function
+CFLAGS = -ggdb -std=gnu99
 
 EXECUTABLE = csapp
 

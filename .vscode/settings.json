@@ -8,5 +8,11 @@
         "editorInlayHint.foreground": "#d67272"
     },
     "editor.inlayHints.enabled": "on",
-    "C_Cpp.inlayHints.parameterNames.suppressWhenArgumentContainsName": true
+    "C_Cpp.inlayHints.parameterNames.suppressWhenArgumentContainsName": true,
+    "files.associations": {
+        "Makefile": "c",
+        "random": "c",
+        "compare": "c",
+        "type_traits": "c"
+    }
 }
