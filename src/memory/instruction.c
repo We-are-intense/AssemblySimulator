@@ -6,10 +6,34 @@
 handler_t handler_table[NUM_INSTRTYPE];
 
 // Private Methods
-typedef enum Parse_State {
-    parse_state_init,
-    parse_state_inst
-} parse_state;
+typedef struct Parse_State {
+    char condition;
+    int current;
+    int next;
+
+} parse_state_t;
+#define parse_state_num 19
+static parse_state_t parse_state_list[parse_state_num] = {
+    {'0',  0, 1},// initial($0x12) --> 1
+    {'3',  0, 1},// inital(%rax) --> 1
+    {'1',  0, 2},// inital(0x12) --> 2
+    {'4',  0, 2},// inital( ( )  --> 2
+    {'\0', 1,16},// 1(\0) --> 16 解析完成
+    {'2',  1, 0},// 1(,) --> 0, 回到初始状态，解析出了 src
+    {'2',  2, 0},// 2( , )  --> 0 回到初始状态，解析出了 src
+    {'4',  2, 3},// 2( ( )  --> 3 
+    {'3',  3, 4},// 3( %rax )  --> 4 
+    {'2',  3, 7},// 3( , ) --> 7
+    {'5',  4, 1},// 4( ) )  --> 1 
+    {'2',  4, 5},// 4( , )  --> 5 
+    {'3',  5, 6},// 5( %rax ) --> 6 
+    {'5',  6, 1},// 6( ) ) --> 1 
+    {'2',  6, 9},// 6( , ) --> 9 
+    {'3',  7, 8},// 7( %rax ) --> 8 
+    {'2',  8, 9},// 8( , ) --> 9 
+    {'1',  9,10},// 9( 0x12 ) --> 10
+    {'5', 10, 1},// 10( ) ) --> 1
+};
 
 typedef struct Parse_inst_state
 {
@@ -245,99 +269,25 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
    #define symbol_left  '4'
    #define symbol_right '5'
    #define symbol_eof   '\0'
-   #define offset_0 (offset)
-   #define offset_1 (offset + 1)
-   #define offset_2 (offset + 2)
-   #define offset_3 (offset + 3)
-   #define offset_4 (offset + 4)
-   #define offset_5 (offset + 5)
-   #define offset_6 (offset + 6)
-   #define offset_7 (offset + 7)
-   #define offset_8 (offset + 8)
+
    char *cc = pit->token_type;
    int offset = pit->offset;
-   if (cc[offset_0] == symbol_imm && 
-       (cc[offset_1] == symbol_eof || 
-        cc[offset_1] == symbol_dot)) {
-        if (cc[offset_1] == symbol_eof) {
-            // 立即数，不存在，后面至少有逗号
-            assert(0);
-        } else {
-            // mov $0x12 , xxx
-            assert(pit->inst_state == 1);
-            printf("operate: src=%s\n", pit->tokens[offset + 1]);
+   int current = 0;
+   char type = cc[offset];
+   while (type != '\0') {
+        int find = 0;
+        for (int i = 0; i < parse_state_num; i++) {
+            parse_state_t state = parse_state_list[i];
+            if (state.condition == type && state.current == current) {
+                current = state.next;
+                find = 1;
+                break;
+            }
         }
-        offset += 2;
-   } else if (cc[offset_0] == symbol_reg && 
-              (cc[offset_1] == symbol_dot ||
-               cc[offset_1] == symbol_eof)) {
-        if (cc[offset_1] == symbol_dot) {
-            // mov %rax, xxx
-            assert(pit->inst_state == 1);
-            printf("operate: src=%s\n", pit->tokens[offset + 1]);
-        } else {
-            // mov xxx, %rax
-            assert(pit->inst_state == 2);
-            printf("operate: dst=%s\n", pit->tokens[offset + 1]);
+        if (find == 0) {
+
         }
-        offset += 2;
-   } else if (cc[offset_0] == symbol_imm_m && 
-              (cc[offset_1] == symbol_dot ||
-              cc[offset_1] == symbol_eof)) {
-        if (cc[offset_1] == symbol_dot) {
-            // mov 0x12, xxx
-            assert(pit->inst_state == 1);
-            printf("operate: src=%s\n", pit->tokens[offset + 1]);
-        } else {
-            // mov xxx, %rax
-            assert(pit->inst_state == 2);
-            printf("operate: dst=%s\n", pit->tokens[offset + 1]);
-        }
-        offset += 2;
-   } else if (cc[offset_0] == symbol_imm_m && 
-              cc[offset_1] == symbol_left && 
-              cc[offset_2] == symbol_reg && 
-              cc[offset_3] == symbol_right && 
-              (cc[offset_4] == symbol_dot ||
-               cc[offset_4] == symbol_eof)) {
-        if (cc[offset_4] == symbol_dot) {
-            // mov 0x12(%rax), xxx
-            assert(pit->inst_state == 1);
-            printf("operate: src: imm_m=%s reg=%s\n", 
-                    pit->tokens[offset_0 + 1],
-                    pit->tokens[offset_2 + 1]);
-        } else {
-            // mov xxx, 0x12(%rax)
-            assert(pit->inst_state == 2);
-            printf("operate: dst: imm_m=%s reg=%s\n", 
-                    pit->tokens[offset_0 + 1],
-                    pit->tokens[offset_2 + 1]);
-        }
-        offset = 5;
-   } else if (cc[offset_0] == symbol_imm_m && 
-              cc[offset_1] == symbol_left && 
-              cc[offset_2] == symbol_reg && 
-              cc[offset_3] == symbol_dot &&
-              cc[offset_4] == symbol_reg &&  
-              cc[offset_5] == symbol_right && 
-              (cc[offset_6] == symbol_dot ||
-               cc[offset_6] == symbol_eof)) {
-        // mov 0x12(%rsi, %rdi), xxx
-        if (cc[offset_6] == symbol_dot) {
-            assert(pit->inst_state == 1);
-            printf("operate: src: imm_m=%s reg=%s\n", 
-                    pit->tokens[offset_0 + 1],
-                    pit->tokens[offset_2 + 1]);
-        } else {
-            assert(pit->inst_state == 1);
-            printf("operate: src: imm_m=%s reg=%s\n", 
-                    pit->tokens[offset_0 + 1],
-                    pit->tokens[offset_2 + 1]);
-        }
-        offset = 7;
-    }
-    pit->inst_state++;
-    pit->offset = offset;
+   }
 }
 
 static void parse_inst_token(inst_t *inst, parse_inst_t *pit) {
