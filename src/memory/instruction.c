@@ -237,57 +237,178 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
     if (pit->token_type[0] == '\0') return;
     char *first = NULL, *second = NULL, *reg1 = NULL, *reg2 = NULL;
     /*
-        0:  imm $0x12
-        1:  imm  0x12
-        2:  ,
-        3:  %rax
-        4:  (
-        5:  )
-                            (\0) retq
-                            (0)
-                            (1)
-                            (3) push %rax pop %rbp
-        IMM,                (023)mov $0x123, %rax 立即数
-        REG,                (323)mov %rsi, %rax 寄存器寻址
-        MM_IMM,             (123)mov 0x123, %rax 绝对寻址
-        MM_REG,             (43523)mov (%rsi), %rax 间接寻址
-        MM_IMM_REG,         (143523)mov 0x12(%rsi), %rax M[Imm + REG] (基址 + 偏移量) 寻址
-        MM_REG1_REG2,       (4323523)mov (%rsi, %rdi), %rax M[REG1 + REG2] 变址寻址
-        MM_IMM_REG1_REG2,   (14323523)mov 0x12(%rsi, %rdi), %rax M[Imm + REG1 + REG2] 变址寻址
-        MM_REG2_S,          (42321523)mov (, %rsi, s), %rax M[REG2 * s] 比例变址寻址
-        MM_IMM_REG2_S,      (142321523)mov 0x12(, %rsi, s), %rax M[Imm + REG2 * s] 比例变址寻址
-        MM_REG1_REG2_S,     (432321523)mov (%rsi, %rdi, s), %rax M[REG1 + REG2 * s] 比例变址寻址
-        MM_IMM_REG1_REG2_S  (1432321523)mov 0x12(%rsi, %rdi, s), %rax M[Imm + REG1 + REG2 * s] 比例变址寻址
+                            push %rax pop %rbp
+        IMM,                mov $0x123, %rax 立即数
+        REG,                mov %rsi, %rax 寄存器寻址
+        MM_IMM,             mov 0x123, %rax 绝对寻址
+        MM_REG,             mov (%rsi), %rax 间接寻址
+        MM_IMM_REG,         mov 0x12(%rsi), %rax M[Imm + REG] (基址 + 偏移量) 寻址
+        MM_REG1_REG2,       mov (%rsi, %rdi), %rax M[REG1 + REG2] 变址寻址
+        MM_IMM_REG1_REG2,   mov 0x12(%rsi, %rdi), %rax M[Imm + REG1 + REG2] 变址寻址
+        MM_REG2_S,          mov (, %rsi, s), %rax M[REG2 * s] 比例变址寻址
+        MM_IMM_REG2_S,      mov 0x12(, %rsi, s), %rax M[Imm + REG2 * s] 比例变址寻址
+        MM_REG1_REG2_S,     mov (%rsi, %rdi, s), %rax M[REG1 + REG2 * s] 比例变址寻址
+        MM_IMM_REG1_REG2_S  mov 0x12(%rsi, %rdi, s), %rax M[Imm + REG1 + REG2 * s] 比例变址寻址
 
         express: express, express
                 
     */
-   #define symbol_imm   '0'
-   #define symbol_imm_m '1'
-   #define symbol_dot   '2'
-   #define symbol_reg   '3'
-   #define symbol_left  '4'
-   #define symbol_right '5'
-   #define symbol_eof   '\0'
-
-   char *cc = pit->token_type;
-   int offset = pit->offset;
-   int current = 0;
-   char type = cc[offset];
-   while (type != '\0') {
-        int find = 0;
-        for (int i = 0; i < parse_state_num; i++) {
-            parse_state_t state = parse_state_list[i];
-            if (state.condition == type && state.current == current) {
-                current = state.next;
-                find = 1;
+    char *cc = pit->token_type;
+    int offset = pit->offset;
+    int current = 0;
+    pit->inst_state = 1;
+    printf("-------src------\n");
+    for (int i = 0; i <= pit->token_num; i++) {
+        char type = cc[i];
+        switch (current)
+        {
+            case 0:
+            {
+                if (type == '0' || type == '3') {
+                    // $0x12 || %rax
+                    current = 1;
+                    printf("str=%s\n", pit->tokens[i+1]);
+                } else if (type == '1') {
+                    printf("str=%s\n", pit->tokens[i+1]);
+                    current = 2;
+                } else if (type == '4') {
+                    // (
+                    current = 3;
+                } else {
+                    assert(0);
+                }
                 break;
             }
+            case 1:
+            {
+                if (type == '2') {
+                    current = 0;
+                    printf("-------dst------\n");
+                    pit->inst_state = 2;
+                } else if (type == '\0') {
+                    current = 16;
+                    printf("-------end------\n");
+                } else {
+                    assert(0);
+                }
+                break;
+            }
+            case 2:
+            {
+                if (type == '2') {
+                    // ,
+                    current = 0;
+                    assert(pit->inst_state == 1);
+                    printf("-------dst------\n");
+                    pit->inst_state = 2;
+                } else if (type == '4') {
+                    // (
+                    current = 3;
+                } else if (type == '\0') {
+                    current = 16;
+                    printf("-------end------\n");
+                } else {
+                    assert(0);
+                }
+                break;
+            }
+            case 3:
+            {
+                if (type == '3') {
+                    // %rax
+                    current = 4;
+                    printf("str=%s\n", pit->tokens[i+1]);
+                } else if (type == '2') {
+                    // ,
+                    current = 7;
+                } else {
+                    assert(0);
+                }
+                break;
+            }
+            case 4:
+            {
+                if (type == '5') {
+                    // )
+                    current = 1;
+                } else if (type == '2') {
+                    // ,
+                    current = 5;
+                } else {
+                    assert(0);
+                }
+                break;
+            }            
+            case 5:
+            {
+                if (type == '3') {
+                    // %rax
+                    printf("str=%s\n", pit->tokens[i+1]);
+                    current = 6;
+                } else {
+                    assert(0);
+                }
+                break;
+            }
+            case 6:
+            {
+                if (type == '5') {
+                    // )
+                    current = 1;
+                } else if (type == '2') {
+                    // ,
+                    current = 9;
+                } else {
+                    assert(0);
+                }
+                break;
+            }
+            case 7:
+            {
+                if (type == '3') {
+                    // %rax
+                    printf("str=%s\n", pit->tokens[i+1]);
+                    current = 8;
+                } else {
+                    assert(0);
+                }
+                break;
+            }
+            case 8:
+            {
+                if (type == '2') {
+                    // ,
+                    current = 9;
+                } else {
+                    assert(0);
+                }
+                break;
+            }
+            case 9:
+            {
+                if (type == '1') {
+                    // %rax
+                    printf("str=%s\n", pit->tokens[i+1]);
+                    current = 10;
+                } else {
+                    assert(0);
+                }
+                break;
+            } 
+            case 10:
+            {
+                if (type == '5') {
+                    // )
+                    current = 1;
+                } else {
+                    assert(0);
+                }
+                break;
+            }        
+        default:
+            break;
         }
-        if (find == 0) {
-
-        }
-   }
+    }
 }
 
 static void parse_inst_token(inst_t *inst, parse_inst_t *pit) {
@@ -315,119 +436,9 @@ static void parse_inst_token(inst_t *inst, parse_inst_t *pit) {
     } else {
         return;
     }
-    char type[16] = {'\0'};
-    int imm_use_cnt = 0, reg_use_cnt = 0;
-    // uint64_t first = 0, second = 0, reg1 = 0, reg2 = 0, reg3 = 0;
-    char *first = NULL, *second = NULL, *reg1 = NULL, *reg2 = NULL, *reg3 = NULL;
 
+    parse_operate_token(inst, pit);
 
-
-    #define ONE_IMM_T               "0"
-    #define ONE_IMM_M_T             "1"
-    #define ONE_REG_T               "3"
-
-    #define IMM_T                   "0"
-    #define MM_IMM_T                "1"
-    #define REG_T                   "3"
-    #define MM_IMM_REG_T            "1435"
-    #define MM_IMM_REG1_REG2_T      "143235"
-    #define MM_IMM_REG2_S_T         "1423215"
-    #define MM_IMM_REG1_REG2_S_T    "14323215"
-    #define MM_REG_T                "435"
-    #define MM_REG1_REG2_T          "43235"
-    #define MM_REG2_S_T             "423215"
-    #define MM_REG1_REG2_S_T        "4323215"
-    /*
-        0:  imm $0x12
-        1:  imm  0x12
-        2:  ,
-        3:  %rax
-        4:  (
-        5:  )
-    */
-    char regex_list[25][25] = {
-        /*  0:$0x12 */ "0",
-        /*  1:0x16 */ "1",
-        /*  2:%rax */ "3",
-        /*  3:mov $0x12, 0x16 */ "021",
-        /*  4:mov $0x12, %rax */ "023",
-        /*  5:mov $0x12, 0x16(%rax)*/ "021435",
-        /*  6:mov $0x12, 0x16(%rsi, %rdi)*/ "02143235",
-        /*  7:mov $0x12, 0x16(, %rsi, 2)*/ "021423215",
-        /*  8:mov $0x12, 0x16(%rdi, %rsi, 2)*/ "0214323215",
-        /*  9:mov $0x12, (%rax)*/ "02435",
-        /* 10:mov $0x12, (%rsi, %rdi)*/ "0243235",
-        /* 11:mov $0x12, (, %rsi, 2)*/ "02423215",
-        /* 12:mov $0x12, (%rsi, %rdi, 2)*/ "024323215",
-
-        /* 13:mov 0x16, 0x16 */ "121",
-        /* 14:mov 0x16, %rax */ "123",
-        /* 15:mov 0x16, 0x16(%rax)*/ "121435",
-        /* 16:mov 0x16, 0x16(%rsi, %rdi)*/ "12143235",
-        /* 17:mov 0x16, 0x16(, %rsi, 2)*/ "121423215",
-        /* 18:mov 0x16, 0x16(%rdi, %rsi, 2)*/ "1214323215",
-        /* 19:mov 0x16, (%rax)*/ "12435",
-        /* 20:mov 0x16, (%rsi, %rdi)*/ "1243235",
-        /* 21:mov 0x16, (, %rsi, 2)*/ "12423215",
-        /* 22:mov 0x16, (%rsi, %rdi, 2)*/ "124323215",
-
-        /* 23:mov %rdx, 0x16 */ "321",
-        /* 24:mov %rdx, %rax */ "323",
-        /* 25:mov %rdx, 0x16(%rax)*/ "321435",
-        /* 26:mov %rdx, 0x16(%rsi, %rdi)*/ "32143235",
-        /* 27:mov %rdx, 0x16(, %rsi, 2)*/ "321423215",
-        /* 28:mov %rdx, 0x16(%rdi, %rsi, 2)*/ "3214323215",
-        /* 29:mov %rdx, (%rax)*/ "32435",
-        /* 30:mov %rdx, (%rsi, %rdi)*/ "3243235",
-        /* 31:mov %rdx, (, %rsi, 2)*/ "32423215",
-        /* 32:mov %rdx, (%rsi, %rdi, 2)*/ "324323215",
-    };
-
-
-    if (type[0] == '\0') {
-        // ret
-        printf("commmd:%s\n", pit->tokens[0]);
-    } else if(strcmp(type, ONE_IMM_T) == 0) {
-        // push $0x12 不存在
-    } else if(strcmp(type, ONE_IMM_M_T) == 0) {
-        // push 0x12 不存在
-    } else if(strcmp(type, ONE_REG_T) == 0) {
-        // push %rbp
-        printf("commmd:%s %s\n", pit->tokens[0], reg1);
-    } else if(strcmp(type, IMM_T) == 0) {
-        // mov $0x123, %rax 立即数
-        printf("commmd:%s %s %s\n", pit->tokens[0], first, reg1);
-    } else if(strcmp(type, REG_T) == 0) {
-        // mov %rsi, %rax 寄存器寻址
-        printf("commmd:%s %s %s\n", pit->tokens[0], reg1, reg2);
-    } else if(strcmp(type, MM_IMM_T) == 0) {
-        // mov 0x123, %rax 绝对寻址
-        printf("commmd:%s %s %s\n", pit->tokens[0], first, reg1);
-    } else if(strcmp(type, MM_REG_T) == 0) {
-        // mov (%rsi), %rax 间接寻址
-        printf("commmd:%s %s %s\n", pit->tokens[0], reg1, reg2);
-    } else if(strcmp(type, MM_IMM_REG_T) == 0) {
-        // mov 0x12(%rsi), %rax (基址 + 偏移量) 寻址
-        printf("commmd:%s %s %s %s\n", pit->tokens[0], first, reg1, reg2);
-    } else if(strcmp(type, MM_REG1_REG2_T) == 0) {
-        // mov (%rsi, %rdi), %rax 变址寻址
-        printf("commmd:%s %s %s %s\n", pit->tokens[0], reg1, reg2, reg3);
-    } else if(strcmp(type, MM_IMM_REG1_REG2_T) == 0) {
-        // mov 0x12(%rsi, %rdi), %rax 变址寻址
-        printf("commmd:%s %s %s %s %s\n", pit->tokens[0], first,reg1, reg2, reg3);
-    } else if(strcmp(type, MM_REG2_S_T) == 0) {
-        // mov (, %rsi, s), %rax 比例变址寻址
-        printf("commmd:%s %s %s %s\n", pit->tokens[0], reg1, first, reg2);
-    } else if(strcmp(type, MM_IMM_REG2_S_T) == 0) {
-        // mov 0x12(, %rsi, s), %rax 比例变址寻址
-        printf("commmd:%s %s %s %s %s\n", pit->tokens[0], first, reg1, second, reg2);
-    } else if(strcmp(type, MM_REG1_REG2_S_T) == 0) {
-        // mov (%rsi, %rdi, s), %rax 比例变址寻址
-        printf("commmd:%s %s %s %s %s\n", pit->tokens[0], reg1, reg2, first, reg3);
-    } else if(strcmp(type, MM_IMM_REG1_REG2_S_T) == 0) {
-        // mov 0x12(%rsi, %rdi, s), %rax 比例变址寻址
-        printf("commmd:%s %s %s %s %s %s\n", pit->tokens[0], first, reg1, reg2, second, reg3);
-    }
 }
 
 static void parse_to_token(const char *str, parse_inst_t *pit) {
@@ -452,11 +463,11 @@ static void parse_to_token(const char *str, parse_inst_t *pit) {
             case ')':
             case ',':
             {
-                if (pit->tokens[token_num][0] != '\0') {
-                    token_num++;index = 0;
-                    pit->tokens[token_num][index] = c;
+                while (pit->tokens[token_num][0] != '\0') {
                     token_num++;index = 0;
                 }
+                pit->tokens[token_num][index] = c;
+                token_num++;index = 0;
                 break;
             }
             default:
@@ -471,7 +482,7 @@ static void parse_to_token(const char *str, parse_inst_t *pit) {
     if (pit->tokens[token_num][0] == '\0') {
         token_num -= 1;
     }
-    for (int i = 1; i <= pit->token_num; i++) {
+    for (int i = 1; i <= token_num; i++) {
         pit->token_type[i-1] = parse_token_type(pit->tokens[i]);
     }
     pit->token_num = token_num;
