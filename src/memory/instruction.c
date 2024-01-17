@@ -233,47 +233,70 @@ static char parse_token_type(char *cc) {
     }
 }
 
+static void parse_operate_inst(inst_t *inst, int state, char *cc_stack[]) {
+    printf("%s= ", state == 1 ? "src" : "dst");
+    for (int i = 0; i < 4; i++) {
+        if (!cc_stack[i]) continue;
+        printf("%d: %s ",i , cc_stack[i]);
+    }
+    od_type_t type = state == 1 ? inst->src.type : inst->dst.type;
+#define OD_TYPE_CASE(x)  \
+    case x:printf(" %s", #x);break
+    switch (type)
+    {
+        OD_TYPE_CASE(EMPTY);
+        OD_TYPE_CASE(IMM);
+        OD_TYPE_CASE(REG);
+        OD_TYPE_CASE(MM_IMM);
+        OD_TYPE_CASE(MM_REG);
+        OD_TYPE_CASE(MM_IMM_REG);
+        OD_TYPE_CASE(MM_REG1_REG2);
+        OD_TYPE_CASE(MM_IMM_REG1_REG2);
+        OD_TYPE_CASE(MM_REG2_S);
+        OD_TYPE_CASE(MM_IMM_REG2_S);
+        OD_TYPE_CASE(MM_REG1_REG2_S);
+        OD_TYPE_CASE(MM_IMM_REG1_REG2_S);
+        default:break;
+    }
+    printf("\n");
+}
+
 static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
     if (pit->token_type[0] == '\0') return;
-    char *first = NULL, *second = NULL, *reg1 = NULL, *reg2 = NULL;
-    /*
-                            push %rax pop %rbp
-        IMM,                mov $0x123, %rax 立即数
-        REG,                mov %rsi, %rax 寄存器寻址
-        MM_IMM,             mov 0x123, %rax 绝对寻址
-        MM_REG,             mov (%rsi), %rax 间接寻址
-        MM_IMM_REG,         mov 0x12(%rsi), %rax M[Imm + REG] (基址 + 偏移量) 寻址
-        MM_REG1_REG2,       mov (%rsi, %rdi), %rax M[REG1 + REG2] 变址寻址
-        MM_IMM_REG1_REG2,   mov 0x12(%rsi, %rdi), %rax M[Imm + REG1 + REG2] 变址寻址
-        MM_REG2_S,          mov (, %rsi, s), %rax M[REG2 * s] 比例变址寻址
-        MM_IMM_REG2_S,      mov 0x12(, %rsi, s), %rax M[Imm + REG2 * s] 比例变址寻址
-        MM_REG1_REG2_S,     mov (%rsi, %rdi, s), %rax M[REG1 + REG2 * s] 比例变址寻址
-        MM_IMM_REG1_REG2_S  mov 0x12(%rsi, %rdi, s), %rax M[Imm + REG1 + REG2 * s] 比例变址寻址
-
-        express: express, express
-                
-    */
-    char *cc = pit->token_type;
-    int offset = pit->offset;
     int current = 0;
     pit->inst_state = 1;
-    printf("-------src------\n");
+    // 存储解析出来的指令，按解析顺序存放
+    // 如: 0x12(%rsi, %rdi, s)
+    char *cc_stack[4] = {NULL};
+    int  cc_stack_index = 0;
+    od_type_t od_type = EMPTY;
     for (int i = 0; i <= pit->token_num; i++) {
-        char type = cc[i];
+        char type = pit->token_type[i];
         switch (current)
         {
             case 0:
             {
-                if (type == '0' || type == '3') {
-                    // $0x12 || %rax
+                if (type == '0') {
+                    // $0x12
                     current = 1;
-                    printf("str=%s\n", pit->tokens[i+1]);
+                    assert(cc_stack_index <= 3);
+                    cc_stack[cc_stack_index++] = pit->tokens[i+1];
+                    od_type = IMM;
+                } else if (type == '3') {
+                    // %rax
+                    current = 1;
+                    assert(cc_stack_index <= 3);
+                    cc_stack[cc_stack_index++] = pit->tokens[i+1];
+                    od_type = REG;
                 } else if (type == '1') {
-                    printf("str=%s\n", pit->tokens[i+1]);
+                    assert(cc_stack_index <= 3);
+                    cc_stack[cc_stack_index++] = pit->tokens[i+1];
                     current = 2;
+                    od_type = MM_IMM;
                 } else if (type == '4') {
                     // (
                     current = 3;
+                    od_type == MM_REG;
                 } else {
                     assert(0);
                 }
@@ -283,11 +306,19 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
             {
                 if (type == '2') {
                     current = 0;
-                    printf("-------dst------\n");
+                    inst->src.type = od_type;
+                    parse_operate_inst(inst, pit->inst_state, cc_stack);
+                    od_type = EMPTY;
+                    cc_stack_index = 0;
                     pit->inst_state = 2;
                 } else if (type == '\0') {
                     current = 16;
-                    printf("-------end------\n");
+                    if (pit->inst_state == 1) {
+                        inst->src.type = od_type;
+                    } else {
+                        inst->dst.type = od_type;
+                    }
+                    parse_operate_inst(inst, pit->inst_state, cc_stack);
                 } else {
                     assert(0);
                 }
@@ -299,14 +330,23 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
                     // ,
                     current = 0;
                     assert(pit->inst_state == 1);
-                    printf("-------dst------\n");
+                    inst->src.type = MM_IMM;
+                    parse_operate_inst(inst, pit->inst_state, cc_stack);
+                    od_type = EMPTY;
                     pit->inst_state = 2;
                 } else if (type == '4') {
                     // (
                     current = 3;
+                    od_type = MM_IMM_REG;
                 } else if (type == '\0') {
+                    if (pit->inst_state == 1) {
+                        inst->src.type = od_type;
+                    } else {
+                        inst->dst.type = od_type;
+                    }
+                    inst->dst.type = MM_IMM;
+                    parse_operate_inst(inst, pit->inst_state, cc_stack);
                     current = 16;
-                    printf("-------end------\n");
                 } else {
                     assert(0);
                 }
@@ -317,10 +357,18 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
                 if (type == '3') {
                     // %rax
                     current = 4;
-                    printf("str=%s\n", pit->tokens[i+1]);
+                    assert(cc_stack_index <= 3);
+                    cc_stack[cc_stack_index++] = pit->tokens[i+1];
                 } else if (type == '2') {
                     // ,
                     current = 7;
+                    if (od_type == MM_IMM_REG) {
+                        od_type = MM_IMM_REG2_S;
+                    } else if (MM_REG) {
+                        od_type = MM_REG2_S;
+                    } else {
+                        assert(0);
+                    }
                 } else {
                     assert(0);
                 }
@@ -334,6 +382,13 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
                 } else if (type == '2') {
                     // ,
                     current = 5;
+                    if (od_type == MM_IMM_REG) {
+                        od_type = MM_IMM_REG1_REG2;
+                    } else if (MM_REG) {
+                        od_type = MM_REG1_REG2;
+                    } else {
+                        assert(0);
+                    }
                 } else {
                     assert(0);
                 }
@@ -343,7 +398,8 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
             {
                 if (type == '3') {
                     // %rax
-                    printf("str=%s\n", pit->tokens[i+1]);
+                    assert(cc_stack_index <= 3);
+                    cc_stack[cc_stack_index++] = pit->tokens[i+1];
                     current = 6;
                 } else {
                     assert(0);
@@ -358,6 +414,13 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
                 } else if (type == '2') {
                     // ,
                     current = 9;
+                    if (od_type == MM_IMM_REG1_REG2) {
+                        od_type = MM_IMM_REG1_REG2_S;
+                    } else if (MM_REG1_REG2) {
+                        od_type = MM_REG1_REG2_S;
+                    } else {
+                        assert(0);
+                    }
                 } else {
                     assert(0);
                 }
@@ -367,7 +430,8 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
             {
                 if (type == '3') {
                     // %rax
-                    printf("str=%s\n", pit->tokens[i+1]);
+                    assert(cc_stack_index <= 3);
+                    cc_stack[cc_stack_index++] = pit->tokens[i+1];
                     current = 8;
                 } else {
                     assert(0);
@@ -388,7 +452,8 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
             {
                 if (type == '1') {
                     // %rax
-                    printf("str=%s\n", pit->tokens[i+1]);
+                    assert(cc_stack_index <= 3);
+                    cc_stack[cc_stack_index++] = pit->tokens[i+1];
                     current = 10;
                 } else {
                     assert(0);

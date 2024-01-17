@@ -44,6 +44,7 @@ int main(int argc, char const *argv[]) {
         "callq  0",                 // 13
         "mov    %rax,-0x8(%rbp)",   // 14
     };
+    test_parse_inst((uint64_t)&assembly[3]);
     reg.rip = (uint64_t)&assembly[11];
     sprintf(assembly[13], "callq  $%p", &assembly[0]);
     for (int i = 0; i < Inst_Num; i++)
