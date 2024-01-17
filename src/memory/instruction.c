@@ -5,36 +5,6 @@
 #include <string.h>
 handler_t handler_table[NUM_INSTRTYPE];
 
-// Private Methods
-typedef struct Parse_State {
-    char condition;
-    int current;
-    int next;
-
-} parse_state_t;
-#define parse_state_num 19
-static parse_state_t parse_state_list[parse_state_num] = {
-    {'0',  0, 1},// initial($0x12) --> 1
-    {'3',  0, 1},// inital(%rax) --> 1
-    {'1',  0, 2},// inital(0x12) --> 2
-    {'4',  0, 2},// inital( ( )  --> 2
-    {'\0', 1,16},// 1(\0) --> 16 解析完成
-    {'2',  1, 0},// 1(,) --> 0, 回到初始状态，解析出了 src
-    {'2',  2, 0},// 2( , )  --> 0 回到初始状态，解析出了 src
-    {'4',  2, 3},// 2( ( )  --> 3 
-    {'3',  3, 4},// 3( %rax )  --> 4 
-    {'2',  3, 7},// 3( , ) --> 7
-    {'5',  4, 1},// 4( ) )  --> 1 
-    {'2',  4, 5},// 4( , )  --> 5 
-    {'3',  5, 6},// 5( %rax ) --> 6 
-    {'5',  6, 1},// 6( ) ) --> 1 
-    {'2',  6, 9},// 6( , ) --> 9 
-    {'3',  7, 8},// 7( %rax ) --> 8 
-    {'2',  8, 9},// 8( , ) --> 9 
-    {'1',  9,10},// 9( 0x12 ) --> 10
-    {'5', 10, 1},// 10( ) ) --> 1
-};
-
 typedef struct Parse_inst_state
 {
     // 0: 开始解析指令 
@@ -42,8 +12,6 @@ typedef struct Parse_inst_state
     // 2: 开始解析目的操作
     // 3: 解析完成
     int inst_state;
-    // 开始索引
-    int start;
     // 偏移
     int offset;
     int token_num;
@@ -58,141 +26,6 @@ static inline int is_char(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
-static inline void parse_next(const char *str, parse_inst_t *pit) {
-    if (str[pit->offset] == '\0') {
-        return;
-    }
-    pit->start  = pit->offset + 1;
-    pit->offset = pit->offset + 1;
-}
-
-static inline void parse_remove_white_space(const char *str, parse_inst_t *pit) {
-    int offset = pit->offset;
-    while (str[offset] == ' ' && str[offset] != '\0')
-    {
-        offset++;
-    }
-    pit->start = offset;
-    pit->offset = offset;
-}
-/*
-*   解析数字
-*   return type:
-*  -1: 解析出错
-*   0: 立即数 $123, $0x12, $-123, $-0x12
-*   1: 绝对寻址 123, 0x12, -123
-*   2: 变址寻址 mov 0x12(%rax), mov 0x12(%rsi, %rdi), %rax
-* */
-static int parse_number(const char *str, parse_inst_t *pit, char *value) {
-    parse_remove_white_space(str, pit);
-    int start = pit->start, offset = pit->offset;
-    int type = -1;
-    char c = str[offset];
-    if (c == '\0') return -1;
-    if (c == '$') {
-        type = 1;
-    }
-
-    if (c == '$') {
-        // 跳过 '$'
-        parse_next(str, pit);
-        int is_hex = 0;
-        int is_negative = 1; // 是否是负数
-        char cc[64] = {'\0'};
-        // mov $0x123, %rax
-        // 立即数只会在源操作上
-        // '0' 'x'
-        // c1   c2
-        char c1 = str[pit->offset];
-        assert(!(c1 == '\0'));
-        if (c1 == '-') {
-            is_negative = -1;
-            // 跳过负号
-            parse_next(str, pit);
-            c1 = str[pit->offset];
-            assert(!(c1 == '\0'));
-        }
-        char c2 = str[pit->offset + 1];
-        assert(!(c2 == '\0'));
-        if (c1 == '0' && c2 == 'x') {
-            is_hex = 1;
-            // 跳过 '0'
-            parse_next(str, pit);
-            // 跳过 'x'
-            parse_next(str, pit);
-        } else {
-            assert(is_num(c1) || is_char(c1));
-            cc[0] = c1;
-            if (is_num(c2) || is_char(c2)) {
-                cc[1] = c2;
-            }
-        }
-        start  = pit->start - (is_hex ? 0 : 2);
-        offset = pit->offset;
-        c1 = str[offset];
-        while (is_num(c1) || is_char(c1)) {
-            cc[offset - start] = c1;
-            offset ++;
-            c1 = str[offset];
-        }
-        pit->offset = offset;
-        parse_remove_white_space(str, pit);
-        c1 = str[pit->offset];
-        assert(c1 == ',');
-        offset = 0;
-        if (is_negative < 0) {
-            value[offset++] = '-';
-        }
-        if (is_hex) {
-            value[offset++] = '0';
-            value[offset++] = 'x';
-        }
-        start = 0;
-        while (cc[start] != '\0') {
-            value[offset++] = cc[start++];
-        }
-        type = 1;
-    }
-    return type;
-}
-
-static void parse_string(const char *str, parse_inst_t *pit, char *result) {
-    parse_remove_white_space(str, pit);
-    int start = pit->start, offset = pit->offset;
-    char c = str[offset];
-    while (c != '\0') {
-        if (is_char(c)) {
-            result[offset - start] = c;
-            offset++;
-            c = str[offset];
-        }  else  {
-            break;
-        }
-    }
-    pit->start  = offset;
-    pit->offset = offset;
-} 
-/*
-*   解析变址寻址
-*   return type:
-*  -1: 解析出错
-*   0: mov (%rax),     %rdx         --> first = rax
-*      mov 0x12(%rax), %rdx         --> first = rax
-*   2: mov (%rsi, %rdi), %rax       --> first = rsi, second = rdi 
-*      mov 0x12(%rsi, %rdi), %rax   --> first = rsi, second = rdi 
-*   3: mov (, %rdi, 2), %rax        --> first =    , second = rdi, scale = 2
-*      mov 0x12(, %rdi, 2), %rax    --> first =    , second = rdi, scale = 2
-*   4: mov (%rsi, %rdi, 2), %rax    --> first = rsi, second = rdi, scale = 2
-*      mov 0x12(%rsi, %rdi, 2), %rax
-* */
-static int parse_index_addressing(const char *str, 
-                                   parse_inst_t *pit, 
-                                   char *first, 
-                                   char *second, 
-                                   int  *scale) {
-
-    return -1;
-}
 // lookup table
 static const char *reg_name_list[72] = {
     "%rax","%eax","%ax","%ah","%al",
@@ -212,6 +45,46 @@ static const char *reg_name_list[72] = {
     "%r14","%r14d","%r14w","%r14b",
     "%r15","%r15d","%r15w","%r15b",
 };
+// reflection
+static uint64_t reflect_register(const char *reg_name, core_t *cr)
+{
+    // lookup table
+    reg_t *reg = &(cr->reg);
+    uint64_t reg_addr[72] = {
+        (uint64_t)&(reg->rax),(uint64_t)&(reg->eax),(uint64_t)&(reg->ax),(uint64_t)&(reg->ah),(uint64_t)&(reg->al),
+        (uint64_t)&(reg->rbx),(uint64_t)&(reg->ebx),(uint64_t)&(reg->bx),(uint64_t)&(reg->bh),(uint64_t)&(reg->bl),
+        (uint64_t)&(reg->rcx),(uint64_t)&(reg->ecx),(uint64_t)&(reg->cx),(uint64_t)&(reg->ch),(uint64_t)&(reg->cl),
+        (uint64_t)&(reg->rdx),(uint64_t)&(reg->edx),(uint64_t)&(reg->dx),(uint64_t)&(reg->dh),(uint64_t)&(reg->dl),
+        (uint64_t)&(reg->rsi),(uint64_t)&(reg->esi),(uint64_t)&(reg->si),(uint64_t)&(reg->sih),(uint64_t)&(reg->sil),
+        (uint64_t)&(reg->rdi),(uint64_t)&(reg->edi),(uint64_t)&(reg->di),(uint64_t)&(reg->dih),(uint64_t)&(reg->dil),
+        (uint64_t)&(reg->rbp),(uint64_t)&(reg->ebp),(uint64_t)&(reg->bp),(uint64_t)&(reg->bph),(uint64_t)&(reg->bpl),
+        (uint64_t)&(reg->rsp),(uint64_t)&(reg->esp),(uint64_t)&(reg->sp),(uint64_t)&(reg->sph),(uint64_t)&(reg->spl),
+        (uint64_t)&(reg->r8),(uint64_t)&(reg->r8d),(uint64_t)&(reg->r8w),(uint64_t)&(reg->r8b),
+        (uint64_t)&(reg->r9),(uint64_t)&(reg->r9d),(uint64_t)&(reg->r9w),(uint64_t)&(reg->r9b),
+        (uint64_t)&(reg->r10),(uint64_t)&(reg->r10d),(uint64_t)&(reg->r10w),(uint64_t)&(reg->r10b),
+        (uint64_t)&(reg->r11),(uint64_t)&(reg->r11d),(uint64_t)&(reg->r11w),(uint64_t)&(reg->r11b),
+        (uint64_t)&(reg->r12),(uint64_t)&(reg->r12d),(uint64_t)&(reg->r12w),(uint64_t)&(reg->r12b),
+        (uint64_t)&(reg->r13),(uint64_t)&(reg->r13d),(uint64_t)&(reg->r13w),(uint64_t)&(reg->r13b),
+        (uint64_t)&(reg->r14),(uint64_t)&(reg->r14d),(uint64_t)&(reg->r14w),(uint64_t)&(reg->r14b),
+        (uint64_t)&(reg->r15),(uint64_t)&(reg->r15d),(uint64_t)&(reg->r15w),(uint64_t)&(reg->r15b),
+    };
+
+    for (int i = 0; i < 72; ++ i) {
+        if (strcmp(reg_name, reg_name_list[i]) == 0) {
+            return reg_addr[i];
+        }
+    }
+    assert(0);
+}
+
+static uint64_t string2uint_range(const char *str, int start, int end) {
+    
+    return 0;
+}
+
+static uint64_t string2uint(const char *str) {
+    return string2uint_range(str, 0, -1);
+}
 
 static char parse_token_type(char *cc) {
     /*
@@ -233,7 +106,7 @@ static char parse_token_type(char *cc) {
     }
 }
 
-static void parse_operate_inst(inst_t *inst, int state, char *cc_stack[]) {
+static void parse_operate_inst(inst_t *inst, int state, char *cc_stack[], core_t *cr) {
     printf("%s= ", state == 1 ? "src" : "dst");
     for (int i = 0; i < 4; i++) {
         if (!cc_stack[i]) continue;
@@ -259,9 +132,144 @@ static void parse_operate_inst(inst_t *inst, int state, char *cc_stack[]) {
         default:break;
     }
     printf("\n");
+    switch (type)
+    {
+        case EMPTY:
+        {
+            break;
+        }
+        case IMM:
+        {
+            uint64_t imm = string2uint_range(cc_stack[0], 1, -1);
+            if (state == 1) {
+                inst->src.imm = imm;
+            } else {
+                inst->dst.imm = imm;
+            }
+            break;
+        }
+        case REG:
+        case MM_REG:
+        {
+            uint64_t reg = reflect_register(cc_stack[0], cr);
+            if (state == 1) {
+                inst->src.reg1 = reg;
+            } else {
+                inst->dst.reg1 = reg;
+            }
+            break;
+        }
+        case MM_IMM_REG:
+        {
+            uint64_t imm = string2uint(cc_stack[0]);
+            uint64_t reg = reflect_register(cc_stack[1], cr);
+            if (state == 1) {
+                inst->src.imm  = imm;
+                inst->src.reg1 = reg;
+            } else {
+                inst->dst.imm  = imm;
+                inst->dst.reg1 = reg;
+            }
+            break;
+        }
+        case MM_REG1_REG2:
+        {
+            uint64_t reg1 = reflect_register(cc_stack[0], cr);
+            uint64_t reg2 = reflect_register(cc_stack[1], cr);
+            if (state == 1) {
+                inst->src.reg1 = reg1;
+                inst->src.reg2 = reg2;
+            } else {
+                inst->dst.reg1 = reg1;
+                inst->dst.reg2 = reg2;
+            }
+            break;
+        }
+        case MM_IMM_REG1_REG2:
+        {
+            uint64_t imm  = string2uint(cc_stack[0]);
+            uint64_t reg1 = reflect_register(cc_stack[1], cr);
+            uint64_t reg2 = reflect_register(cc_stack[2], cr);
+            if (state == 1) {
+                inst->src.imm  = imm;
+                inst->src.reg1 = reg1;
+                inst->src.reg2 = reg2;
+            } else {
+                inst->dst.imm  = imm;
+                inst->dst.reg1 = reg1;
+                inst->dst.reg2 = reg2;
+            }
+            break;
+        }
+        case MM_REG2_S:
+        {
+            uint64_t reg2 = reflect_register(cc_stack[0], cr);
+            uint64_t s    = string2uint(cc_stack[1]);
+            if (state == 1) {
+                inst->src.reg2 = reg2;
+                inst->src.s    = s;
+            } else {
+                inst->dst.reg2 = reg2;
+                inst->dst.s    = s;
+            }
+            break;
+        }
+        case MM_IMM_REG2_S:
+        {
+            uint64_t imm  = string2uint(cc_stack[0]);
+            uint64_t reg2 = reflect_register(cc_stack[1], cr);
+            uint64_t s    = string2uint(cc_stack[2]);
+            if (state == 1) {
+                inst->src.imm  = imm;
+                inst->src.reg2 = reg2;
+                inst->src.s    = s;
+            } else {
+                inst->dst.imm  = imm;
+                inst->dst.reg2 = reg2;
+                inst->dst.s    = s;
+            }
+            break;
+        }
+        case MM_REG1_REG2_S:
+        {
+            uint64_t reg1 = reflect_register(cc_stack[0], cr);
+            uint64_t reg2 = reflect_register(cc_stack[1], cr);
+            uint64_t s    = string2uint(cc_stack[2]);
+            if (state == 1) {
+                inst->src.reg1 = reg1;
+                inst->src.reg2 = reg2;
+                inst->src.s    = s;
+            } else {
+                inst->dst.reg1 = reg1;
+                inst->dst.reg2 = reg2;
+                inst->dst.s    = s;
+            }
+            break;
+        }
+        case MM_IMM_REG1_REG2_S:
+        {
+            uint64_t imm  = string2uint(cc_stack[0]);
+            uint64_t reg1 = reflect_register(cc_stack[1], cr);
+            uint64_t reg2 = reflect_register(cc_stack[2], cr);
+            uint64_t s    = string2uint(cc_stack[3]);
+            if (state == 1) {
+                inst->src.imm  = imm;
+                inst->src.reg1 = reg1;
+                inst->src.reg2 = reg2;
+                inst->src.s    = s;
+            } else {
+                inst->dst.imm  = imm;
+                inst->dst.reg1 = reg1;
+                inst->dst.reg2 = reg2;
+                inst->dst.s    = s;
+            }
+            break;
+        }
+        default: break;
+    }
 }
 
-static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
+static void parse_operate_token(inst_t *inst, parse_inst_t *pit, core_t *cr) {
     if (pit->token_type[0] == '\0') return;
     int current = 0;
     pit->inst_state = 1;
@@ -296,7 +304,7 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
                 } else if (type == '4') {
                     // (
                     current = 3;
-                    od_type == MM_REG;
+                    od_type = MM_REG;
                 } else {
                     assert(0);
                 }
@@ -307,7 +315,7 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
                 if (type == '2') {
                     current = 0;
                     inst->src.type = od_type;
-                    parse_operate_inst(inst, pit->inst_state, cc_stack);
+                    parse_operate_inst(inst, pit->inst_state, cc_stack, cr);
                     od_type = EMPTY;
                     cc_stack_index = 0;
                     pit->inst_state = 2;
@@ -318,7 +326,7 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
                     } else {
                         inst->dst.type = od_type;
                     }
-                    parse_operate_inst(inst, pit->inst_state, cc_stack);
+                    parse_operate_inst(inst, pit->inst_state, cc_stack, cr);
                 } else {
                     assert(0);
                 }
@@ -331,7 +339,7 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
                     current = 0;
                     assert(pit->inst_state == 1);
                     inst->src.type = MM_IMM;
-                    parse_operate_inst(inst, pit->inst_state, cc_stack);
+                    parse_operate_inst(inst, pit->inst_state, cc_stack, cr);
                     od_type = EMPTY;
                     pit->inst_state = 2;
                 } else if (type == '4') {
@@ -345,7 +353,7 @@ static void parse_operate_token(inst_t *inst, parse_inst_t *pit) {
                         inst->dst.type = od_type;
                     }
                     inst->dst.type = MM_IMM;
-                    parse_operate_inst(inst, pit->inst_state, cc_stack);
+                    parse_operate_inst(inst, pit->inst_state, cc_stack, cr);
                     current = 16;
                 } else {
                     assert(0);
@@ -501,9 +509,6 @@ static void parse_inst_token(inst_t *inst, parse_inst_t *pit) {
     } else {
         return;
     }
-
-    parse_operate_token(inst, pit);
-
 }
 
 static void parse_to_token(const char *str, parse_inst_t *pit) {
@@ -553,11 +558,10 @@ static void parse_to_token(const char *str, parse_inst_t *pit) {
     pit->token_num = token_num;
 }
 
-static void parse_instruction(inst_t *inst, const char *str) {
+static void parse_instruction(inst_t *inst, const char *str, core_t *cr) {
     parse_inst_t pit = {
         .inst_state = 0,
         .offset = 0,
-        .start = 0,
         .token_num = 0,
         .tokens = {{'\0'}},
         .token_type = {'\0'}
@@ -570,8 +574,9 @@ static void parse_instruction(inst_t *inst, const char *str) {
         printf("<%s>  ",pit.tokens[i]);
     }
     printf("\n");
-    // 解析指令
+    // 将指令解析成 token
     parse_inst_token(inst, &pit);
+    parse_operate_token(inst, &pit, cr);
 }
 
 static uint64_t decode_od(od_t od) {
@@ -589,64 +594,27 @@ static uint64_t decode_od(od_t od) {
 // Public Methods
 
 void mov_handler(uint64_t src, uint64_t dst) {
-    // mov $0x123, %rax
-    *(uint64_t *)dst = src;
-    reg.rip = reg.rip + sizeof(inst_t);
-}
 
-void mov_reg_reg_handler(uint64_t src, uint64_t dst) {
-    // mov %rdx, %rax
-    *(uint64_t *)dst = *(uint64_t *)src;
-    reg.rip = reg.rip + sizeof(inst_t);
-}
-
-void mov_mem_reg_handler(uint64_t src, uint64_t dst) {
-    // mov (%rcx), %rax
-    *(uint64_t *)dst = read64bits_dram_virtual(src);
-    reg.rip = reg.rip + sizeof(inst_t);
-}
-
-void mov_imm_mem_handler(uint64_t src, uint64_t dst) {
-    // mov $0x4050, (%rsp)
-    write64bits_dram_virtual(*(uint64_t *)dst, src);
-    reg.rip = reg.rip + sizeof(inst_t);
-}
-
-void mov_reg_mem_handler(uint64_t src, uint64_t dst) {
-    // mov %rax, -12(%rbp)
-    write64bits_dram_virtual(*(uint64_t *)dst, 
-                             *(uint64_t *)src);
-    reg.rip = reg.rip + sizeof(inst_t);
 }
 
 void push_handler(uint64_t src, uint64_t dst) {
-    reg.rsp = reg.rsp - 0x8;
-    write64bits_dram_virtual(reg.rsp, 
-                             *(uint64_t *)src);
-    reg.rip = reg.rip + sizeof(inst_t);
+
 }
 
 void pop_reg_handler(uint64_t src, uint64_t dst) {
-    *(uint64_t *)src = read64bits_dram_virtual(reg.rsp);
-    reg.rsp = reg.rsp + 0x8;
-    reg.rip = reg.rip + sizeof(inst_t);
+
 }
 
 void call_handler(uint64_t src, uint64_t dst) {
-    reg.rsp = reg.rsp - 0x8;
-    write64bits_dram_virtual(reg.rsp, 
-                             reg.rip + sizeof(inst_t));
-    reg.rip = src;
+
 }
 
 void ret_handler(uint64_t src, uint64_t dst) {
-    reg.rip = read64bits_dram_virtual(reg.rsp);
-    reg.rsp = reg.rsp + 0x8;
+
 }
 
 void add_handler(uint64_t src, uint64_t dst) {
-    *(uint64_t *)dst = *(uint64_t *)src + *(uint64_t *)dst;
-    reg.rip = reg.rip + sizeof(inst_t);
+
 }
 
 void init_handler_table() {
@@ -657,10 +625,10 @@ void init_handler_table() {
     handler_table[INST_ADD]  = &add_handler;
 }
 
-void instruction_cycle() {
-    const char *inst_str = (const char *)reg.rip;
+void instruction_cycle(core_t *cr) {
+    const char *inst_str = (const char *)cores[ACTIVE_CORE].rip;
     inst_t instr;
-    parse_instruction(&instr, inst_str);
+    parse_instruction(&instr, inst_str, cr);
 
     return;
     uint64_t src = decode_od(instr.src);
@@ -670,8 +638,8 @@ void instruction_cycle() {
     handler(src, dst);
 }
 
-void test_parse_inst(uint64_t value) {
+void test_parse_inst(uint64_t value, core_t *cr) {
     const char *inst_str = (const char *)value;
     inst_t instr;
-    parse_instruction(&instr, inst_str);
+    parse_instruction(&instr, inst_str, cr);
 }

@@ -9,10 +9,9 @@
     },
     "editor.inlayHints.enabled": "on",
     "C_Cpp.inlayHints.parameterNames.suppressWhenArgumentContainsName": true,
+    "editor.fontFamily": "'JetBrains Mono',Menlo, Monaco, 'Courier New', monospace",
+    "editor.fontLigatures": false,
     "files.associations": {
-        "Makefile": "c",
-        "random": "c",
-        "compare": "c",
-        "type_traits": "c"
+        "instruction.C": "cpp"
     }
 }

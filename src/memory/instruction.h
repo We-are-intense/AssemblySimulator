@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include "cpu/register.h"
+
 #define NUM_INSTRTYPE 30
 
 typedef enum OP 
@@ -57,9 +59,9 @@ typedef void (*handler_t)(uint64_t, uint64_t);
 
 extern handler_t handler_table[NUM_INSTRTYPE];
 
-void test_parse_inst(uint64_t value);
+void test_parse_inst(uint64_t value, core_t *cr);
 void init_handler_table();
-void instruction_cycle();
+void instruction_cycle(core_t *cr);
 
 void mov_handler(uint64_t src, uint64_t dst);
 void add_handler(uint64_t src, uint64_t dst);

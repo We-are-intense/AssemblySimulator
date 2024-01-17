@@ -1,3 +1,5 @@
 #include "register.h"
 
-reg_t reg;
+core_t cores[NUM_CORES];
+// active core for current task
+uint64_t ACTIVE_CORE;

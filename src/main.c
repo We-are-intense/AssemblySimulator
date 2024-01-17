@@ -8,15 +8,15 @@
 int main(int argc, char const *argv[]) {
     // init state
     init_handler_table();
-
-    reg.rax = 0xabcd;
-    reg.rbx = 0x8000670;
-    reg.rcx = 0x8000670;
-    reg.rdx = 0x12340000;
-    reg.rsi = 0x7ffffffee208;
-    reg.rdi = 0x1;
-    reg.rbp = 0x7ffffffee110;
-    reg.rsp = 0x7ffffffee0f0;
+    core_t cr = cores[ACTIVE_CORE];
+    cr.reg.rax = 0xabcd;
+    cr.reg.rbx = 0x8000670;
+    cr.reg.rcx = 0x8000670;
+    cr.reg.rdx = 0x12340000;
+    cr.reg.rsi = 0x7ffffffee208;
+    cr.reg.rdi = 0x1;
+    cr.reg.rbp = 0x7ffffffee110;
+    cr.reg.rsp = 0x7ffffffee0f0;
 
     write64bits_dram_virtual(0x7ffffffee110, 0x0000000000000000);    // rbp
     write64bits_dram_virtual(0x7ffffffee108, 0x0000000000000000);
@@ -44,12 +44,12 @@ int main(int argc, char const *argv[]) {
         "callq  0",                 // 13
         "mov    %rax,-0x8(%rbp)",   // 14
     };
-    test_parse_inst((uint64_t)&assembly[3]);
-    reg.rip = (uint64_t)&assembly[11];
+    test_parse_inst((uint64_t)&assembly[3], &cr);
+    cores[ACTIVE_CORE].rip = (uint64_t)&assembly[11];
     sprintf(assembly[13], "callq  $%p", &assembly[0]);
     for (int i = 0; i < Inst_Num; i++)
     {
-        test_parse_inst((uint64_t)&assembly[i]);
+        test_parse_inst((uint64_t)&assembly[i], &cr);
     }
     
     return 0;
