@@ -3,6 +3,9 @@
 #include "memory/dram.h"
 #include <assert.h>
 #include <string.h>
+
+// pointer pointing to the function
+typedef void (*handler_t)(od_t *, od_t *, core_t *);
 handler_t handler_table[NUM_INSTRTYPE];
 
 typedef struct Parse_inst_state
@@ -78,12 +81,28 @@ static uint64_t reflect_register(const char *reg_name, core_t *cr)
 }
 
 static uint64_t string2uint_range(const char *str, int start, int end) {
-    
-    return 0;
+    char num[64] = {'\0'};
+    int len = strlen(str);
+    int end_index = len;
+    if (end < 0) {
+        end_index += end;
+    }
+    int offset = start;
+
+    for (; offset < end_index; offset++) {
+        num[offset - start] = str[offset];
+    }
+    // 将带有"0x"前缀的16进制字符串转换为长整型数number
+    // 第一个参数是要转换的字符串，
+    // 第二个参数是一个指向char*类型的指针，用于存储剩余的未转换部分（如果不需要使用可以传入NULL），
+    // 第三个参数指定要转换的进制，这里使用0表示自动检测进制（可以是8、10或16进制）。
+    long long value = strtoll(num,NULL, 0);
+    printf("num:%s ---> 0x%llx\n", num, value);
+    return *((uint64_t *)&value);
 }
 
 static uint64_t string2uint(const char *str) {
-    return string2uint_range(str, 0, -1);
+    return string2uint_range(str, 0, 0);
 }
 
 static char parse_token_type(char *cc) {
@@ -140,7 +159,17 @@ static void parse_operate_inst(inst_t *inst, int state, char *cc_stack[], core_t
         }
         case IMM:
         {
-            uint64_t imm = string2uint_range(cc_stack[0], 1, -1);
+            uint64_t imm = string2uint_range(cc_stack[0], 1, 0);
+            if (state == 1) {
+                inst->src.imm = imm;
+            } else {
+                inst->dst.imm = imm;
+            }
+            break;
+        }
+        case MM_IMM:
+        {
+            uint64_t imm = string2uint(cc_stack[0]);
             if (state == 1) {
                 inst->src.imm = imm;
             } else {
@@ -579,63 +608,192 @@ static void parse_instruction(inst_t *inst, const char *str, core_t *cr) {
     parse_operate_token(inst, &pit, cr);
 }
 
-static uint64_t decode_od(od_t od) {
-    if (od.type == IMM) {
-        return *((uint64_t *)&od.imm);
-    } else if (od.type == REG) {
-        return (uint64_t)od.reg1;
-    } else {
-        // mm
-        uint64_t vaddr = 0;
-        return vaddr;
+static uint64_t decode_od(od_t *od) {
+    switch (od->type)
+    {
+        case EMPTY:
+        {
+            return 0;
+        }
+        case IMM:
+        {
+            return od->imm;
+        }
+        case REG:
+        {
+            return od->reg1;
+        }
+        case MM_IMM:
+        {// 物理地址
+            return od->imm;
+        }
+        case MM_REG:
+        {
+            return *((uint64_t *)od->reg1);
+        }
+        case MM_IMM_REG:
+        {
+            return od->imm + *((uint64_t *)od->reg1);
+        }
+        case MM_REG1_REG2:
+        {
+            return *((uint64_t *)od->reg1) + *((uint64_t *)od->reg2);
+        }
+        case MM_IMM_REG1_REG2:
+        {
+            return od->imm + *((uint64_t *)od->reg1) + *((uint64_t *)od->reg2);
+        }
+        case MM_REG2_S:
+        {
+            return (*((uint64_t *)od->reg2)) * od->s;
+        }
+        case MM_IMM_REG2_S:
+        {
+            return od->imm + (*((uint64_t *)od->reg2)) * od->s;
+        }
+        case MM_REG1_REG2_S:
+        {
+            return *((uint64_t *)od->reg1) + (*((uint64_t *)od->reg2)) * od->s;
+        }
+        case MM_IMM_REG1_REG2_S:
+        {
+            return od->imm + *((uint64_t *)od->reg1) + (*((uint64_t *)od->reg2)) * od->s;
+        }
+        default: return 0;
     }
 }
 
-// Public Methods
-
-void mov_handler(uint64_t src, uint64_t dst) {
-
+// update the rip pointer to the next instruction sequentially
+static inline void next_rip(core_t *cr) {
+    // we are handling the fixed-length of assembly string here
+    // but their size can be variable as true X86 instructions
+    // that's because the operands' sizes follow the specific encoding rule
+    // the risc-v is a fixed length ISA
+    cr->rip = cr->rip + sizeof(char) * MAX_INSTRUCTION_CHAR;
+}
+// Private Methods
+static void mov_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+    uint64_t src = decode_od(src_od);
+    uint64_t dst = decode_od(dst_od);
+    if (src_od->type == IMM && dst_od->type == REG) {
+        // src: immediate number (uint64_t bit map)
+        // dst: register
+        *(uint64_t *)dst = src;
+        next_rip(cr);
+        cr->flags.__cpu_flag_value = 0;
+    } else if (src_od->type == REG && dst_od->type == REG) {
+        // src: register
+        // dst: register
+        *(uint64_t *)dst = *(uint64_t *)src;
+        next_rip(cr);
+        cr->flags.__cpu_flag_value = 0;
+    } else if (src_od->type == REG && dst_od->type >= MM_IMM) {
+        // src: register
+        // dst: virtual address
+        write64bits_dram_virtual(dst, *(uint64_t *)src);
+        next_rip(cr);
+        cr->flags.__cpu_flag_value = 0;
+    } else if (src_od->type >= MM_IMM && dst_od->type == REG) {
+        *(uint64_t *)dst = read64bits_dram_virtual(src);
+        next_rip(cr);
+        cr->flags.__cpu_flag_value = 0;
+    } else {
+        assert(0);
+    }
 }
 
-void push_handler(uint64_t src, uint64_t dst) {
-
+static void push_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+    if (src_od->type != REG) {
+        assert(0);
+    }
+    uint64_t src = decode_od(src_od);
+    // subq $8, %rsp     # %rsp    = %rsp - 8
+    // movq %rbp, (%rsp) # *(%rsp) = %rbp
+    cr->reg.rsp -= 8;
+    write64bits_dram_virtual(cr->reg.rsp, *(uint64_t *)src);
+    next_rip(cr);
+    cr->flags.__cpu_flag_value = 0;
 }
 
-void pop_reg_handler(uint64_t src, uint64_t dst) {
-
+static void pop_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+    if (src_od->type != REG) {
+        assert(0);
+    }
+    uint64_t src = decode_od(src_od);
+    // movq (%rsp), %rax
+    // addq $8, %rsp
+    *(uint64_t *)src = read64bits_dram_virtual(cr->reg.rsp);
+    cr->reg.rsp += 8;
+    next_rip(cr);
+    cr->flags.__cpu_flag_value = 0;
 }
 
-void call_handler(uint64_t src, uint64_t dst) {
+static void call_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+    uint64_t src = decode_od(src_od);
+    // 400540 <top>:
+    //      400540: sub xxx, xxx
+    //      ......      
+    //      400551: retq
+    //
+    //      ......
+    //      40055b: callq 400540<top>
+    //      400560: xxx
+    
+    // callq:
+    //  push %rsp # %rsp --> 400560
+    //  1. 将下一条指令的地址存放在 %rsp 中
+    //  2. 跳转到函数 top 执行
+    // retq:
+    //  2. pop %rip # %rip --> 400560
 
+    // 下一条指令的地址 
+    uint64_t next = cr->rip + sizeof(char) * MAX_INSTRUCTION_CHAR;
+    // push %rsp
+    cr->reg.rsp -= 8;
+    // 写入 %rsp 所指向的地址
+    write64bits_dram_virtual(cr->reg.rsp, next);
+    // 跳转到 src 执行代码
+    cr->rip = src;
+    cr->flags.__cpu_flag_value = 0;
 }
 
-void ret_handler(uint64_t src, uint64_t dst) {
-
+static void ret_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+    cr->rip = read64bits_dram_virtual(cr->reg.rsp);
+    cr->reg.rsp += 8;
+    cr->flags.__cpu_flag_value = 0;
 }
 
-void add_handler(uint64_t src, uint64_t dst) {
+static void add_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+    uint64_t src = decode_od(src_od);
+    uint64_t dst = decode_od(dst_od);
+    if (src_od->type == REG && dst_od->type == REG) {
+        // src: register (value: int64_t bit map)
+        // dst: register (value: int64_t bit map)
+        uint64_t val = *(uint64_t *)dst + *(uint64_t *)src;
+        // TODO: 更新 CPU flags
 
+        *(uint64_t *)dst = val;
+        next_rip(cr);
+    } else {
+        assert(0);
+    }
 }
 
 void init_handler_table() {
     handler_table[INST_MOV]  = &mov_handler;
     handler_table[INST_PUSH] = &push_handler;
+    handler_table[INST_POP]  = &pop_handler;
     handler_table[INST_CALL] = &call_handler;
     handler_table[INST_RET]  = &ret_handler;
     handler_table[INST_ADD]  = &add_handler;
 }
 
 void instruction_cycle(core_t *cr) {
-    const char *inst_str = (const char *)cores[ACTIVE_CORE].rip;
+    const char *inst_str = (const char *)cr->rip;
     inst_t instr;
     parse_instruction(&instr, inst_str, cr);
-
-    return;
-    uint64_t src = decode_od(instr.src);
-    uint64_t dst = decode_od(instr.dst);
-
     handler_t handler = handler_table[instr.op];
-    handler(src, dst);
+    handler(&(instr.src), &(instr.dst), cr);
 }
 
 void test_parse_inst(uint64_t value, core_t *cr) {

@@ -54,20 +54,9 @@ typedef struct INSTRUCT_STRUCT
     char code[100];
 } inst_t;
 
-// pointer pointing to the function
-typedef void (*handler_t)(uint64_t, uint64_t);
-
-extern handler_t handler_table[NUM_INSTRTYPE];
+// commonly shared variables
+#define MAX_INSTRUCTION_CHAR 64
 
 void test_parse_inst(uint64_t value, core_t *cr);
 void init_handler_table();
 void instruction_cycle(core_t *cr);
-
-void mov_handler(uint64_t src, uint64_t dst);
-void add_handler(uint64_t src, uint64_t dst);
-
-void push_handler(uint64_t src, uint64_t dst);
-void pop_handler(uint64_t src, uint64_t dst);
-
-void call_handler(uint64_t src, uint64_t dst);
-void ret_handler(uint64_t src, uint64_t dst);
