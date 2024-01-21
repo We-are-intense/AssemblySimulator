@@ -21,14 +21,6 @@ typedef struct Parse_inst_state
     char tokens[30][64];
     char token_type[25];   
 } parse_inst_t;
-static inline int is_num(char c) {
-    return (c >= '0' && c <= '9');
-}
-
-static inline int is_char(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-}
-
 // lookup table
 static const char *reg_name_list[72] = {
     "%rax","%eax","%ax","%ah","%al",
@@ -97,7 +89,6 @@ static uint64_t string2uint_range(const char *str, int start, int end) {
     // 第二个参数是一个指向char*类型的指针，用于存储剩余的未转换部分（如果不需要使用可以传入NULL），
     // 第三个参数指定要转换的进制，这里使用0表示自动检测进制（可以是8、10或16进制）。
     long long value = strtoll(num,NULL, 0);
-    printf("num:%s ---> 0x%llx\n", num, value);
     return *((uint64_t *)&value);
 }
 
@@ -771,14 +762,58 @@ static void add_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
         // dst: register (value: int64_t bit map)
         uint64_t val = *(uint64_t *)dst + *(uint64_t *)src;
         // TODO: 更新 CPU flags
+        // 最高位 正数: 0 负数: 1
+        int val_sign = ((val >> 63) & 0x1);
+        int src_sign = ((*(uint64_t *)src >> 63) & 0x1);
+        int dst_sign = ((*(uint64_t *)dst >> 63) & 0x1);
 
+        // set condition flags
+        // 两无符号数相加，结果变小 无符号溢出
+        cr->flags.CF = (val < *(uint64_t *)src);
+        // 结果等于零
+        cr->flags.ZF = (val == 0);
+        // 正数: 0 负数: 1
+        cr->flags.SF = val_sign;
+        // 两个正数相加结果为负数，两个负数相加结果为正数
+        cr->flags.OF = (src_sign == 0 && dst_sign == 0 && val_sign == 1) || 
+                       (src_sign == 1 && dst_sign == 1 && val_sign == 0);
         *(uint64_t *)dst = val;
         next_rip(cr);
     } else {
         assert(0);
     }
 }
+static void sub_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+    uint64_t src = decode_od(src_od);
+    uint64_t dst = decode_od(dst_od);
+    if (src_od->type == IMM && dst_od->type == REG) {
+        // src: imm
+        // dst: register (value: int64_t bit map)
+        // dst = dst - src = dst + (-src)
+        uint64_t val = *(uint64_t *)dst + (~src + 1);
+        // TODO: 更新 CPU flags
+        // 最高位 正数: 0 负数: 1
+        int val_sign = ((val >> 63) & 0x1);
+        int src_sign = ((*(uint64_t *)src >> 63) & 0x1);
+        int dst_sign = ((*(uint64_t *)dst >> 63) & 0x1);
 
+        // set condition flags
+        // 两个数相减 val = dst - src, val > dst 
+        cr->flags.CF = (val < *(uint64_t *)src);
+        // 结果等于零
+        cr->flags.ZF = (val == 0);
+        // 正数: 0 负数: 1
+        cr->flags.SF = val_sign;
+        // 1. 正数减去负数，结果却是负数
+        // 2. 负数减去正数，结果确是正数
+        cr->flags.OF = (src_sign == 1 && dst_sign == 0 && val_sign == 1) || 
+                       (src_sign == 0 && dst_sign == 1 && val_sign == 0);
+        *(uint64_t *)dst = val;
+        next_rip(cr);
+    } else {
+        assert(0);
+    }
+}
 void init_handler_table() {
     handler_table[INST_MOV]  = &mov_handler;
     handler_table[INST_PUSH] = &push_handler;
@@ -786,6 +821,7 @@ void init_handler_table() {
     handler_table[INST_CALL] = &call_handler;
     handler_table[INST_RET]  = &ret_handler;
     handler_table[INST_ADD]  = &add_handler;
+    handler_table[INST_SUB]  = &sub_handler;
 }
 
 void instruction_cycle(core_t *cr) {

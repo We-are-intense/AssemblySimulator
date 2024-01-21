@@ -181,13 +181,13 @@ typedef struct CPU_FLAGS_STRUCT
         uint64_t __cpu_flag_value;
         struct
         {    
-            // carry flag: detect overflow for unsigned operations
+            // carry flag: 进位标识，最近的操作产生了进位
             uint16_t CF;
-            // zero flag: result is zero
+            // zero flag: 零标识，最近的操作结果为零
             uint16_t ZF;
-            // sign flag: result is negative: highest bit
+            // sign flag: 负号标识，最近的操作结果为负数
             uint16_t SF;
-            // overflow flag: detect overflow for signed operations
+            // overflow flag: 溢出标识，最近的操作导致一个补码溢出: 正溢出或者负溢出
             uint16_t OF;
         };
     };
