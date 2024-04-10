@@ -13,5 +13,7 @@
     "editor.fontLigatures": false,
     "files.associations": {
         "instruction.C": "cpp"
-    }
+    },
+    "editor.fontSize": 25,
+    "window.zoomLevel": 1.2
 }
