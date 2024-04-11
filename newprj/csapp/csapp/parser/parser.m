@@ -21,6 +21,30 @@ typedef enum OD_TYPE
     MM_REG1_REG2_S, /* mov (%rsi, %rdi, s), %rax M[REG1 + REG2 * s] 比例变址寻址 */
     MM_IMM_REG1_REG2_S /* mov 0x12(%rsi, %rdi, s), %rax M[Imm + REG1 + REG2 * s] 比例变址寻址 */
 } od_type_t;
+/*
+ 
+ 
+ 
+ 
+ 
+ */
+typedef NS_ENUM(NSInteger, TokenType) {
+    TokenTypeNone,
+    ///< $0x123
+    TokenTypeImm,
+    ///< 0x123
+    TokenTypeNum,
+    ///< move
+    TokenTypeInst,
+    ///< rax
+    TokenTypeReg,
+    ///< (
+    TokenTypeLeftB,
+    ///< )
+    TokenTypeRightB,
+    ///< ,
+    TokenTypeDot
+};
 
 #define maxBufferSize 64
 
@@ -35,8 +59,7 @@ typedef enum OD_TYPE
     unichar buffer[maxBufferSize];
 }
 
-- (instancetype)init
-{
+- (instancetype)init {
     self = [super init];
     if (self) {
         self.tokens = [NSMutableArray array];
@@ -53,24 +76,47 @@ typedef enum OD_TYPE
     [self.tokens removeAllObjects];
     
     [inst getCharacters:buffer];
-    while (buffer[self.start] != '\0' && self.start < maxBufferSize) {
-        char a = buffer[self.start];
+    char a = self.pre;
+    NSString *token = nil;
+    TokenType type = TokenTypeNone;
+    while (a != '\0') {
         if (a >= 'a' && a <= 'z') {
-            [self parseInst];
+            token = [self parseInst];
+            type = TokenTypeInst;
         } else if (a >= '0' && a <= '9') {
-            [self parseNumber];
+            token = [self parseNumber];
+            type = TokenTypeNum;
         } else if (a == '%') {
-            [self parseRegister];
+            token = [self parseRegister];
+            type = TokenTypeReg;
         } else if (a == '(') {
-            [self.tokens addObject:@"("];
-            self.start++;
+            token = @"(";
+            type = TokenTypeLeftB;
+            [self next];
+        } else if (a == ')') {
+            token = @")";
+            type = TokenTypeRightB;
+            [self next];
         } else if (a == ',') {
-            [self.tokens addObject:@","];
-            self.start++;
+            token = @",";
+            type = TokenTypeDot;
+            [self next];
+        } else if (a == '$') {
+            token = [self parseNumber];
+            type = TokenTypeImm;
         } else if (a == ' ') {
-            self.start++;
+            [self next];
         }
+        a = self.pre;
+        if (token && type != TokenTypeNone) {
+            [self addToken:token tokenType:type];
+        }
+        type = TokenTypeNone;
+        token = nil;
     }
+    
+    NSString *str = [self.tokens componentsJoinedByString:@"  "];
+    printf("%s\n\n", str.UTF8String);
     return nil;
 }
 #pragma mark - Private Methods
@@ -84,14 +130,14 @@ typedef enum OD_TYPE
 }
 
 - (char)pre {
-    if((self.start + 1) >= maxBufferSize ||
-       buffer[self.start + 1] == '\0') {
+    if((self.start) >= maxBufferSize ||
+       buffer[self.start] == '\0') {
         return '\0';
     }
-    return buffer[self.start + 1];
+    return buffer[self.start];
 }
 
-- (void)parseInst {
+- (NSString *)parseInst {
     char a = self.pre;
     char inst[16] = {'\0'};
     int offset = 0;
@@ -103,48 +149,55 @@ typedef enum OD_TYPE
     if (offset == 0) {
         NSAssert(NO, @"指令解析出错");
     }
-    [self.tokens addObject:[NSString stringWithFormat:@"%s", inst]];
+    return [NSString stringWithFormat:@"%s", inst];
 }
 
-- (void)parseNumber {
+- (NSString *)parseNumber {
     char a = self.pre;
     char inst[64] = {'\0'};
     int offset = 0;
     while (a != ' ' && a != '\0' &&
-           (a >= '0' || a <= '9' || a == 'x' || a == 'X')) {
+           ((a >= '0' && a <= '9') || a == 'x' || a == 'X')) {
         inst[offset++] = self.next;
         a = self.pre;
     }
     if (offset == 0) {
         NSAssert(NO, @"数字解析出错");
     }
-    [self.tokens addObject:[NSString stringWithFormat:@"%s", inst]];
+    return [NSString stringWithFormat:@"%s", inst];
 }
 
-- (void)parseRegister {
+- (NSString *)parseRegister {
     char a = self.pre;
     if (a != '%') {
         NSAssert(NO, @"寄存器解析出错，第一个字符不等于 '%%'");
     }
     // 跳过 %
     [self next];
+    a = self.pre;
     char inst[16] = {'\0'};
     int offset = 0;
     while (a != ' ' && a != '\0' &&
-           (a >= 'a' || a <= 'z' || a >= 'A' || a >= 'Z')) {
+           ((a >= 'a' && a <= 'z') ||
+            (a >= 'A' && a >= 'Z'))) {
         inst[offset++] = self.next;
         a = self.pre;
     }
     if (offset == 0) {
         NSAssert(NO, @"寄存器解析出错");
     }
-    [self.tokens addObject:[NSString stringWithFormat:@"%s", inst]];
+    return [NSString stringWithFormat:@"%s", inst];
+}
+
+- (void)addToken:(NSString *)token tokenType:(TokenType)tokenType {
+    [self.tokens addObject:token];
 }
 
 - (void)resetBuffer {
     for (int i = 0; i < maxBufferSize; i++) {
         buffer[i] = '\0';
     }
+    self.start = 0;
 }
 
 @end
