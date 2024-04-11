@@ -11,7 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface parser : NSObject
 
-- (void)parserWithInst:(NSString *)inst;
+- (id)parserWithInst:(NSString *)inst;
 
 @end
 
