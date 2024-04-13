@@ -6,11 +6,12 @@
 //
 
 #import <Foundation/Foundation.h>
-#import "parser.h"
+#import "Parser.h"
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
-        parser *p = [parser new];
+        Parser *p = [Parser new];
         NSArray *insts = @[
+            @"mov $0x123, %rax",
             @"mov 0x123, %rax",
             @"mov (%rsi), %rax",
             @"mov 0x12(%rsi), %rax",
