@@ -109,6 +109,7 @@ typedef struct CORE_STRUCT {
     self = [super init];
     if (self) {
         self.expresses = expresses;
+        [self resetMemory];
     }
     return self;
 }
@@ -255,20 +256,46 @@ typedef struct CORE_STRUCT {
     return [self read64bits_dram_virtual:reg];
 }
 
-- (uint64_t)read64bits_dram:(uint64_t)paddr {
-    return 0;
+- (uint64_t)read64bits_dram_virtual:(uint64_t)vaddr {
+    return [self read64bits_dram:[self va2pa:vaddr]];
 }
 
-- (uint64_t)read64bits_dram_virtual:(uint64_t)paddr {
-    return 0;
+- (uint64_t)read64bits_dram:(uint64_t)paddr {
+    uint64_t val = 0x0;
+
+    val += (((uint64_t)memory[paddr + 0 ]) << 0);
+    val += (((uint64_t)memory[paddr + 1 ]) << 8);
+    val += (((uint64_t)memory[paddr + 2 ]) << 16);
+    val += (((uint64_t)memory[paddr + 3 ]) << 24);
+    val += (((uint64_t)memory[paddr + 4 ]) << 32);
+    val += (((uint64_t)memory[paddr + 5 ]) << 40);
+    val += (((uint64_t)memory[paddr + 6 ]) << 48);
+    val += (((uint64_t)memory[paddr + 7 ]) << 56);
+    return val;
+}
+
+- (void)write64bits_dram_virtual:(uint64_t)vaddr data:(uint64_t)data {
+    [self write64bits_dram:[self va2pa:vaddr] data:data];
 }
 
 - (void)write64bits_dram:(uint64_t)paddr data:(uint64_t)data {
-    
+    memory[paddr + 0] = (data >> 0 ) & 0xff;
+    memory[paddr + 1] = (data >> 8 ) & 0xff;
+    memory[paddr + 2] = (data >> 16) & 0xff;
+    memory[paddr + 3] = (data >> 24) & 0xff;
+    memory[paddr + 4] = (data >> 32) & 0xff;
+    memory[paddr + 5] = (data >> 40) & 0xff;
+    memory[paddr + 6] = (data >> 48) & 0xff;
+    memory[paddr + 7] = (data >> 56) & 0xff;
 }
 
-- (void)write64bits_dram_virtual:(uint64_t)paddr data:(uint64_t)data {
-    
+- (uint64_t)va2pa:(uint64_t)vaddr {
+    return vaddr % MM_LEN;
 }
 
+- (void)resetMemory {
+    for (int i = 0; i < MM_LEN; i++) {
+        memory[i] = '\0';
+    }
+}
 @end

@@ -21,6 +21,8 @@ typedef enum OP
     INST_JMP,           // 10
 } op_t;
 
+
+
 typedef enum OD_TYPE
 {
     EMPTY,
