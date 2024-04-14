@@ -125,7 +125,7 @@ typedef NS_ENUM(NSInteger, StateType) {
     return self;
 }
 
-- (id)parserWithInst:(NSString *)inst {
+- (Express *)parserWithInst:(NSString *)inst {
     if (inst.length == 0) {
         return nil;
     }
@@ -133,6 +133,7 @@ typedef NS_ENUM(NSInteger, StateType) {
     [self.tokens removeAllObjects];
     [self.stateTypes removeAllObjects];
     self.stateType = StateTypeInst;
+    [self.stateTypes addObject:@(StateTypeInst)];
     [inst getCharacters:buffer];
     char a = self.pre;
     NSString *token = nil;
@@ -140,7 +141,7 @@ typedef NS_ENUM(NSInteger, StateType) {
     self.od_type = EMPTY;
     printf("(%s)\n", inst.UTF8String);
     printf("%s->", [self stateToString:self.stateType].UTF8String);
-    Express *exp = [[Express alloc] init];
+    Express *express = [[Express alloc] init];
     while (a != '\0') {
         if (a >= 'a' && a <= 'z') {
             token = [self parseInst];
@@ -172,16 +173,16 @@ typedef NS_ENUM(NSInteger, StateType) {
         }
         a = self.pre;
         if (token && type != TokenTypeNone) {
-            [self addToken:token tokenType:type express:exp];
+            [self addToken:token tokenType:type express:express];
         }
         type = TokenTypeNone;
         token = nil;
     }
-    [self addToken:nil tokenType:TokenTypeEOF express:exp];
+    [self addToken:nil tokenType:TokenTypeEOF express:express];
     printf("\n");
     NSString *str = [self.tokens componentsJoinedByString:@"  "];
     printf("%s\n\n", str.UTF8String);
-    return nil;
+    return express;
 }
 #pragma mark - Private Methods
 
@@ -350,7 +351,7 @@ typedef NS_ENUM(NSInteger, StateType) {
         NSArray *fss = self.parseStates[i];
         NSAssert(fss.count == 2, @"final state error");
         if ([self statesContainSub:fss[0]]) {
-            return (OdType)[fss[1] boolValue];
+            return (OdType)[fss[1] integerValue];
         }
     }
     return EMPTY;
@@ -455,6 +456,7 @@ typedef NS_ENUM(NSInteger, StateType) {
         default: break;
     }
     [self.tokens removeAllObjects];
+    [self.stateTypes removeAllObjects];
 }
 
 - (RegType)parseReg:(NSString *)reg {
@@ -464,7 +466,17 @@ typedef NS_ENUM(NSInteger, StateType) {
 }
 
 - (NSInteger)parseImm:(NSString *)imm {
-    return [imm integerValue];
+    NSAssert(imm, @"Imm 字符串 不能为空");
+    if ([imm hasPrefix:@"0x"] || [imm hasPrefix:@"0X"]) {
+        NSAssert(imm.length > 2, @"解析 16字符串 to num error only 0x ");
+        imm = [imm substringFromIndex:2];
+        const char *char_str = [imm cStringUsingEncoding:NSASCIIStringEncoding];
+        NSInteger hexNum;
+        sscanf(char_str, "%lx", &hexNum);
+        return hexNum;
+    } else {
+        return [imm integerValue];
+    }
 }
 
 - (Node *)expressNode:(Express *)express {
@@ -475,6 +487,7 @@ typedef NS_ENUM(NSInteger, StateType) {
         express.dst = [Node new];
         return express.dst;
     }
+    NSAssert(NO, @"node 错误， src 和 dst 都已经解析过了");
     return nil;
 }
 

@@ -7,6 +7,7 @@
 
 #import <Foundation/Foundation.h>
 #import "Parser.h"
+#import "VM.h"
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
         Parser *p = [Parser new];
@@ -22,9 +23,14 @@ int main(int argc, const char * argv[]) {
             @"mov (%rsi, %rdi, 1), %rax",
             @"mov 0x12(%rsi, %rdi, 8), %rax"
         ];
+        NSMutableArray *expresses = [NSMutableArray array];
         for (NSString *inst in insts) {
-            [p parserWithInst:inst];
+            Express *express = [p parserWithInst:inst];
+            [expresses addObject:express];
         }
+        
+        VM *vm = [[VM alloc] initWithExpresses:expresses];
+        [vm run];
     }
     return 0;
 }
