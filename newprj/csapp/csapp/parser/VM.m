@@ -133,6 +133,7 @@ typedef struct CORE_STRUCT {
                 } else {
                     NSAssert(NO, @"mov 指令运算异常");
                 }
+                [self increasePC];
                 core.flags.__cpu_flag_value = 0;
                 break;
             }
@@ -146,8 +147,9 @@ typedef struct CORE_STRUCT {
                 // subq $8, %rsp     # %rsp    = %rsp - 8
                 // movq %rbp, (%rsp) # *(%rsp) = %rbp
                 core.reg.rsp -= 8;
-                core.flags.__cpu_flag_value = 0;
                 [self write64bits_dram_virtual:core.reg.rsp data:src];
+                [self increasePC];
+                core.flags.__cpu_flag_value = 0;
                 break;
             }
             case INST_POP:
@@ -158,9 +160,10 @@ typedef struct CORE_STRUCT {
                 // movq (%rsp), %rax
                 // addq $8, %rsp
                 uint64_t value = [self read64bits_dram_virtual:core.reg.rsp];
-                core.reg.rsp += 8;
-                core.flags.__cpu_flag_value = 0;
                 [self regType:express.src.reg1 value:value];
+                core.reg.rsp += 8;
+                [self increasePC];
+                core.flags.__cpu_flag_value = 0;
                 break;
             }
             case INST_LEAVE:
@@ -227,7 +230,7 @@ typedef struct CORE_STRUCT {
                 } else {
                     NSAssert(NO, @"add 指令异常");
                 }
-                core.rip += 1;
+                [self increasePC];
                 break;
             }
             case INST_SUB:
@@ -246,7 +249,7 @@ typedef struct CORE_STRUCT {
                     
                     // 两个数相减 val = dst - src, val > dst
                     /// TODO: CF 这里暂时有疑问
-                    core.flags.CF = (val < src);
+                    core.flags.CF = (val > dst);
                     // 结果等于零
                     core.flags.ZF = (val == 0);
                     // 正数: 0 负数: 1
@@ -255,7 +258,7 @@ typedef struct CORE_STRUCT {
                     // 2. 负数减去正数，结果确是正数
                     core.flags.OF = (src_sign == 1 && dst_sign == 0 && val_sign == 1) ||
                                     (src_sign == 0 && dst_sign == 1 && val_sign == 0);
-                    core.rip += 1;
+                    [self increasePC];
                 } else {
                     NSAssert(NO, @"sub 指令异常");
                 }
@@ -360,6 +363,9 @@ typedef struct CORE_STRUCT {
     return 0;
 }
 
+- (void)increasePC {
+    core.rip += 1;
+}
 #pragma mark - memory
 
 - (uint64_t)readRegType:(RegType)type {
