@@ -66,11 +66,9 @@ typedef struct REGISTER_STRUCT {
 } reg_t;
 
 typedef struct CPU_FLAGS_STRUCT {
-    union
-    {
+    union {
         uint64_t __cpu_flag_value;
-        struct
-        {
+        struct {
             // carry flag: 进位标识，最近的操作产生了进位
             uint16_t CF;
             // zero flag: 零标识，最近的操作结果为零
@@ -99,9 +97,9 @@ typedef struct CORE_STRUCT {
 
 @interface VM () {
     uint8_t memory[MM_LEN];
+    core_t core;
 }
 @property (nonatomic, strong, readwrite) NSArray <Express *>* expresses;
-@property (nonatomic, assign) core_t core;
 @end
 
 @implementation VM
@@ -116,20 +114,53 @@ typedef struct CORE_STRUCT {
 
 - (void)run {
     BOOL isRun = YES;
-    uint64_t rip = self.core.rip;
     while (isRun) {
-        Express *express = self.expresses[rip];
+        Express *express = self.expresses[core.rip];
         switch (express.op) {
             case INST_MOV:
             {
+                uint64_t src = [self decodeNode:express.src];
+                uint64_t dst = [self decodeNode:express.dst];
+                if (express.src.odType == IMM && express.dst.odType == REG) {
+                    [self regType:express.dst.reg1 value:src];
+                } else if (express.src.odType == REG && express.dst.odType == REG) {
+                    [self regType:express.dst.reg1 value:src];
+                } else if (express.src.odType == REG && express.dst.odType >= MM_IMM) {
+                    [self write64bits_dram_virtual:dst data:src];
+                } else if (express.src.odType >= MM_IMM && express.dst.odType == REG) {
+                    uint64_t value = [self read64bits_dram_virtual:src];
+                    [self regType:express.dst.reg1 value:value];
+                } else {
+                    NSAssert(NO, @"mov 指令运算异常");
+                }
+                core.flags.__cpu_flag_value = 0;
                 break;
             }
             case INST_PUSH:
             {
+                if (express.src.odType != REG) {
+                    NSAssert(NO, @"push 指令后必须是寄存器");
+                }
+                uint64_t src = [self decodeNode:express.src];
+                
+                // subq $8, %rsp     # %rsp    = %rsp - 8
+                // movq %rbp, (%rsp) # *(%rsp) = %rbp
+                core.reg.rsp -= 8;
+                core.flags.__cpu_flag_value = 0;
+                [self write64bits_dram_virtual:core.reg.rsp data:src];
                 break;
             }
             case INST_POP:
             {
+                if (express.src.odType != REG) {
+                    NSAssert(NO, @"pop 指令后必须是寄存器");
+                }
+                // movq (%rsp), %rax
+                // addq $8, %rsp
+                uint64_t value = [self read64bits_dram_virtual:core.reg.rsp];
+                core.reg.rsp += 8;
+                core.flags.__cpu_flag_value = 0;
+                [self regType:express.src.reg1 value:value];
                 break;
             }
             case INST_LEAVE:
@@ -138,18 +169,96 @@ typedef struct CORE_STRUCT {
             }
             case INST_CALL:
             {
+                uint64_t src = [self decodeNode:express.src];
+                // 400540 <top>:
+                //      400540: sub xxx, xxx
+                //      ......
+                //      400551: retq
+                //
+                //      ......
+                //      40055b: callq 400540<top>
+                //      400560: xxx
+                
+                // callq:
+                //  push %rsp # %rsp --> 400560
+                //  1. 将下一条指令的地址存放在 %rsp 中
+                //  2. 跳转到函数 top 执行
+                // retq:
+                //  2. pop %rip # %rip --> 400560
+                // 下一条指令的地址
+                uint64_t next = core.rip + 1;
+                // push %rsp
+                core.reg.rsp -= 8;
+                [self write64bits_dram_virtual:core.reg.rsp data:next];
+                // 跳转到 src 执行代码
+                core.rip = src;
+                core.flags.__cpu_flag_value = 0;
                 break;
             }
             case INST_RET:
             {
+                // retq:
+                //  pop %rip # %rip --> 400560
+                core.rip = [self read64bits_dram_virtual:core.reg.rsp];
+                core.reg.rsp += 8;
+                core.flags.__cpu_flag_value = 0;
                 break;
             }
             case INST_ADD:
             {
+                uint64_t src = [self decodeNode:express.src];
+                uint64_t dst = [self decodeNode:express.dst];
+                if (express.src.odType == REG && express.dst.odType == REG) {
+                    uint64_t val = src + dst;
+                    // 最高位 正数: 0 负数: 1
+                    int val_sign = ((val >> 63) & 0x1);
+                    int src_sign = (src >> 63) & 0x1;
+                    int dst_sign = (dst >> 63) & 0x1;
+                    // 两无符号数相加，结果变小 无符号溢出
+                    core.flags.CF = (val < src);
+                    // 结果等于零
+                    core.flags.ZF = (val == 0);
+                    // 正数: 0 负数: 1
+                    core.flags.SF = val_sign;
+                    // 两个正数相加结果为负数，两个负数相加结果为正数
+                    core.flags.OF = (src_sign == 0 && dst_sign == 0 && val_sign == 1) ||
+                                    (src_sign == 1 && dst_sign == 1 && val_sign == 0);
+                    [self regType:express.dst.reg1 value:val];
+                } else {
+                    NSAssert(NO, @"add 指令异常");
+                }
+                core.rip += 1;
                 break;
             }
             case INST_SUB:
             {
+                uint64_t src = [self decodeNode:express.src];
+                uint64_t dst = [self decodeNode:express.dst];
+                if (express.src.odType >= IMM && express.dst.odType == REG) {
+                    // src: imm
+                    // dst: register (value: int64_t bit map)
+                    // dst = dst - src = dst + (-src)
+                    uint64_t val = dst + (~src + 1);
+                    // 最高位 正数: 0 负数: 1
+                    int val_sign = ((val >> 63) & 0x1);
+                    int src_sign = (src >> 63) & 0x1;
+                    int dst_sign = (dst >> 63) & 0x1;
+                    
+                    // 两个数相减 val = dst - src, val > dst
+                    /// TODO: CF 这里暂时有疑问
+                    core.flags.CF = (val < src);
+                    // 结果等于零
+                    core.flags.ZF = (val == 0);
+                    // 正数: 0 负数: 1
+                    core.flags.SF = val_sign;
+                    // 1. 正数减去负数，结果却是负数
+                    // 2. 负数减去正数，结果确是正数
+                    core.flags.OF = (src_sign == 1 && dst_sign == 0 && val_sign == 1) ||
+                                    (src_sign == 0 && dst_sign == 1 && val_sign == 0);
+                    core.rip += 1;
+                } else {
+                    NSAssert(NO, @"sub 指令异常");
+                }
                 break;
             }
             case INST_CMP:
@@ -164,17 +273,20 @@ typedef struct CORE_STRUCT {
             {
                 break;
             }
-            default:
+            default: 
+            {
+                NSAssert(NO, @"未知指令");
                 break;
+            }
         }
     }
 }
 
 - (uint64_t)regType:(RegType)type {
     switch (type) {
-        case RegType_rax: return self.core.reg.rax;
-        case RegType_rsi: return self.core.reg.rsi;
-        case RegType_rdi: return self.core.reg.rdi;
+        case RegType_rax: return core.reg.rax;
+        case RegType_rsi: return core.reg.rsi;
+        case RegType_rdi: return core.reg.rdi;
         default: break;
     }
     NSAssert(NO, @"not find RegType: %ld", type);
@@ -182,7 +294,6 @@ typedef struct CORE_STRUCT {
 }
 
 - (void)regType:(RegType)type value:(uint64_t)value {
-    core_t core = self.core;
     switch (type) {
         case RegType_rax: core.reg.rax = value; break;
         case RegType_rsi: core.reg.rsi = value; break;
