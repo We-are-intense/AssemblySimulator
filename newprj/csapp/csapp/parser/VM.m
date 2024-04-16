@@ -121,13 +121,13 @@ typedef struct CORE_STRUCT {
             {
                 uint64_t src = [self decodeNode:express.src];
                 uint64_t dst = [self decodeNode:express.dst];
-                if (express.src.odType == IMM && express.dst.odType == REG) {
+                if (express.src.type == IMM && express.dst.type == REG) {
                     [self regType:express.dst.reg1 value:src];
-                } else if (express.src.odType == REG && express.dst.odType == REG) {
+                } else if (express.src.type == REG && express.dst.type == REG) {
                     [self regType:express.dst.reg1 value:src];
-                } else if (express.src.odType == REG && express.dst.odType >= MM_IMM) {
+                } else if (express.src.type == REG && express.dst.type >= MM_IMM) {
                     [self write64bits_dram_virtual:dst data:src];
-                } else if (express.src.odType >= MM_IMM && express.dst.odType == REG) {
+                } else if (express.src.type >= MM_IMM && express.dst.type == REG) {
                     uint64_t value = [self read64bits_dram_virtual:src];
                     [self regType:express.dst.reg1 value:value];
                 } else {
@@ -139,7 +139,7 @@ typedef struct CORE_STRUCT {
             }
             case INST_PUSH:
             {
-                if (express.src.odType != REG) {
+                if (express.src.type != REG) {
                     NSAssert(NO, @"push 指令后必须是寄存器");
                 }
                 uint64_t src = [self decodeNode:express.src];
@@ -154,7 +154,7 @@ typedef struct CORE_STRUCT {
             }
             case INST_POP:
             {
-                if (express.src.odType != REG) {
+                if (express.src.type != REG) {
                     NSAssert(NO, @"pop 指令后必须是寄存器");
                 }
                 // movq (%rsp), %rax
@@ -168,6 +168,13 @@ typedef struct CORE_STRUCT {
             }
             case INST_LEAVE:
             {
+                // movq %rbp, %rsp
+                core.reg.rsp = core.reg.rbp;
+                // popq %rbp
+                core.reg.rbp = [self read64bits_dram_virtual:core.reg.rsp];
+                core.reg.rsp += 8;
+                [self increasePC];
+                core.flags.__cpu_flag_value = 0;
                 break;
             }
             case INST_CALL:
@@ -211,7 +218,7 @@ typedef struct CORE_STRUCT {
             {
                 uint64_t src = [self decodeNode:express.src];
                 uint64_t dst = [self decodeNode:express.dst];
-                if (express.src.odType == REG && express.dst.odType == REG) {
+                if (express.src.type == REG && express.dst.type == REG) {
                     uint64_t val = src + dst;
                     // 最高位 正数: 0 负数: 1
                     int val_sign = ((val >> 63) & 0x1);
@@ -237,7 +244,7 @@ typedef struct CORE_STRUCT {
             {
                 uint64_t src = [self decodeNode:express.src];
                 uint64_t dst = [self decodeNode:express.dst];
-                if (express.src.odType >= IMM && express.dst.odType == REG) {
+                if (express.src.type >= IMM && express.dst.type == REG) {
                     // src: imm
                     // dst: register (value: int64_t bit map)
                     // dst = dst - src = dst + (-src)
@@ -248,7 +255,6 @@ typedef struct CORE_STRUCT {
                     int dst_sign = (dst >> 63) & 0x1;
                     
                     // 两个数相减 val = dst - src, val > dst
-                    /// TODO: CF 这里暂时有疑问
                     core.flags.CF = (val > dst);
                     // 结果等于零
                     core.flags.ZF = (val == 0);
@@ -266,14 +272,49 @@ typedef struct CORE_STRUCT {
             }
             case INST_CMP:
             {
+                uint64_t dval = 0, val = 0;
+                if (express.src.type == IMM && express.dst.type >= MM_IMM) {
+                    uint64_t dst = [self decodeNode:express.dst];
+                    dval = [self read64bits_dram_virtual:dst];
+                } else if (express.src.type == IMM && express.dst.type == REG) {
+                    dval = [self regType:express.dst.reg1];
+                }
+                uint64_t src = [self decodeNode:express.src];
+                val = dval + (~(src) + 1);
+
+                int val_sign = ((val >> 63) & 0x1);
+                int src_sign = (((src) >> 63) & 0x1);
+                int dst_sign = ((dval >> 63) & 0x1);
+                
+                // set condition flags
+                core.flags.CF = (val > dval); // unsigned
+
+                core.flags.ZF = (val == 0);
+                core.flags.SF = val_sign;
+
+                core.flags.OF = (src_sign == 1 && dst_sign == 0 && val_sign == 1) || 
+                                (src_sign == 0 && dst_sign == 1 && val_sign == 0);
+
+                 // signed and unsigned value follow the same addition. e.g.
+                 // 5 = 0000000000000101, 3 = 0000000000000011, -3 = 1111111111111101, 5 + (-3) = 0000000000000010
+                [self increasePC];
                 break;
             }
             case INST_JNE:
             {
+                if (core.flags.CF == 0) {
+                    // last instruction value != 0
+                    core.rip = [self decodeNode:express.src];
+                } else {
+                    [self increasePC];
+                }
+                core.flags.__cpu_flag_value = 0;
                 break;
             }
             case INST_JMP:
             {
+                core.rip = [self decodeNode:express.src];
+                core.flags.__cpu_flag_value = 0;
                 break;
             }
             default: 
@@ -306,7 +347,7 @@ typedef struct CORE_STRUCT {
 }
 
 - (uint64_t)decodeNode:(Node *)node {
-    switch (node.odType) {
+    switch (node.type) {
         case REG:
         {
             return [self regType:node.reg1];
@@ -358,7 +399,7 @@ typedef struct CORE_STRUCT {
             uint64_t value = [self regType:node.reg1] + [self regType:node.reg2] * node.s + node.imm;
             return [self read64bits_dram_virtual:value];
         }
-        default: NSAssert(NO, @"decode error type: %ld", node.odType);
+        default: NSAssert(NO, @"decode error type: %ld", node.type);
     }
     return 0;
 }

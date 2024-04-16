@@ -33,7 +33,7 @@ typedef NS_ENUM(NSInteger, RegType) {
 };
 
 @interface Node : NSObject
-@property (nonatomic, assign) OdType odType;
+@property (nonatomic, assign) OdType type;
 @property (nonatomic, assign) NSInteger imm;
 @property (nonatomic, assign) NSInteger s;
 @property (nonatomic, assign) RegType reg1;

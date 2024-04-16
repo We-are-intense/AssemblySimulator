@@ -373,7 +373,7 @@ typedef NS_ENUM(NSInteger, StateType) {
     if (final != INST) {
         node = [self expressNode:express];
         NSAssert(node, @"node 不能为空");
-        node.odType = final;
+        node.type = final;
     }
     switch (final) {
         case REG:
