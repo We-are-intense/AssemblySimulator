@@ -9,10 +9,4 @@
 
 @implementation Express
 
-- (void)inst:(NSString *)inst {
-    
-    
-}
-
-
 @end

@@ -29,8 +29,6 @@ typedef NS_ENUM(NSInteger, InstType) {
 @property (nonatomic, assign) InstType op;
 @property (nonatomic, strong) Node *src;
 @property (nonatomic, strong) Node *dst;
-
-- (void)inst:(NSString *)inst;
 @end
 
 NS_ASSUME_NONNULL_END

@@ -220,14 +220,18 @@ typedef struct CORE_STRUCT {
                 uint64_t dst = [self decodeNode:express.dst];
                 if (express.src.type == REG && express.dst.type == REG) {
                     uint64_t val = src + dst;
+                    // 在进行无符号数运算时，它记录了运算结果的最高有效位向更高位的进位值，或从更高位的借位值。
                     // 最高位 正数: 0 负数: 1
                     int val_sign = ((val >> 63) & 0x1);
                     int src_sign = (src >> 63) & 0x1;
                     int dst_sign = (dst >> 63) & 0x1;
                     // 两无符号数相加，结果变小 无符号溢出
                     core.flags.CF = (val < src);
+                    // 记录相关指令执行后，其结果是否为0，如果结果为0，那么ZF标志位为1。
                     // 结果等于零
                     core.flags.ZF = (val == 0);
+                    // SF 记录相关指令执行后，其结果是否为负数（最高位为1表示负数），
+                    // 如果为负数，那么SF为1，如果不为负数，那么SF为0。
                     // 正数: 0 负数: 1
                     core.flags.SF = val_sign;
                     // 两个正数相加结果为负数，两个负数相加结果为正数
@@ -264,10 +268,11 @@ typedef struct CORE_STRUCT {
                     // 2. 负数减去正数，结果确是正数
                     core.flags.OF = (src_sign == 1 && dst_sign == 0 && val_sign == 1) ||
                                     (src_sign == 0 && dst_sign == 1 && val_sign == 0);
-                    [self increasePC];
+                    [self regType:express.dst.reg1 value:val];
                 } else {
                     NSAssert(NO, @"sub 指令异常");
                 }
+                [self increasePC];
                 break;
             }
             case INST_CMP:
@@ -285,7 +290,7 @@ typedef struct CORE_STRUCT {
                 int val_sign = ((val >> 63) & 0x1);
                 int src_sign = (((src) >> 63) & 0x1);
                 int dst_sign = ((dval >> 63) & 0x1);
-                
+                // 由于 AX 的值不等于 BX 的值，因此条件码寄存器中的零标志位被设置为 0。
                 // set condition flags
                 core.flags.CF = (val > dval); // unsigned
 
@@ -302,8 +307,8 @@ typedef struct CORE_STRUCT {
             }
             case INST_JNE:
             {
-                if (core.flags.CF == 0) {
-                    // last instruction value != 0
+                if (core.flags.ZF == 0) {
+                    // ZF == 0 表示两个数不相等，则跳转
                     core.rip = [self decodeNode:express.src];
                 } else {
                     [self increasePC];
@@ -319,7 +324,7 @@ typedef struct CORE_STRUCT {
             }
             default: 
             {
-                NSAssert(NO, @"未知指令");
+                NSAssert(NO, @"未知指令" );
                 break;
             }
         }

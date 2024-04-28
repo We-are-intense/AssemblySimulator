@@ -1,0 +1,16 @@
+statement = inst express
+          | inst express, express
+
+express = imm
+         | reg
+         | mm_imm
+         | mm_reg
+         | mm_imm_reg
+         | mm_reg1_reg2
+         | mm_imm_reg1_reg2
+         | mm_reg2_s
+         | mm_imm_reg2_s
+         | mm_reg1_reg2_s
+         | mm_imm_reg1_reg2_s
+
+inst = [a-zA-Z]* 
