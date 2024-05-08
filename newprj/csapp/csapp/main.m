@@ -10,27 +10,28 @@
 #import "VM.h"
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
+        if (argc != 2 || argv[1] == NULL) return 0;
+        NSString *path = [NSString stringWithFormat:@"%s/csapp/parser/inst.txt", argv[1]];
+        NSError *error = nil;
+        NSString *fileContent = [NSString stringWithContentsOfFile:path
+                                                          encoding:NSUTF8StringEncoding
+                                                             error:&error];
+        if (error) {
+            NSLog(@"error: %@", error.localizedDescription);
+            return 0;
+        }
+        NSArray *lines = [fileContent componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+        
         Parser *p = [Parser new];
-        NSArray *insts = @[
-            @"mov $0x123, %rax",
-            @"mov 0x123, %rax",
-            @"mov (%rsi), %rax",
-            @"mov 0x12(%rsi), %rax",
-            @"mov (%rsi, %rdi), %rax",
-            @"mov 0x12(%rsi, %rdi), %rax",
-            @"mov (, %rsi, 2), %rax",
-            @"mov 0x12(, %rsi, 4), %rax",
-            @"mov (%rsi, %rdi, 1), %rax",
-            @"mov 0x12(%rsi, %rdi, 8), %rax"
-        ];
         NSMutableArray *expresses = [NSMutableArray array];
-        for (NSString *inst in insts) {
-            Express *express = [p parserWithInst:inst];
+        for (NSString *line in lines) {
+            // 对每一行进行处理
+            Express *express = [p parserWithInst:line];
             [expresses addObject:express];
         }
         
-        VM *vm = [[VM alloc] initWithExpresses:expresses];
-        [vm run];
+//        VM *vm = [[VM alloc] initWithExpresses:expresses];
+//        [vm run];
     }
     return 0;
 }

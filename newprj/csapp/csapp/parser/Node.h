@@ -30,6 +30,11 @@ typedef NS_ENUM(NSInteger, RegType) {
     RegType_rax,
     RegType_rsi,
     RegType_rdi,
+    RegType_rbp,
+    RegType_rsp,
+    RegType_edi,
+    RegType_esi,
+    RegType_eax,
 };
 
 @interface Node : NSObject

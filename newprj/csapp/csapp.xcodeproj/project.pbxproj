@@ -37,6 +37,7 @@
 		9CC9734F2BC58D0700AAE92B /* Parser.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Parser.m; sourceTree = "<group>"; };
 		9CCD87FD2BCB93A20093C921 /* VM.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VM.h; sourceTree = "<group>"; };
 		9CCD87FE2BCB93A20093C921 /* VM.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VM.m; sourceTree = "<group>"; };
+		9CD526972BEA5CC8008179F5 /* inst.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = inst.txt; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,6 +111,7 @@
 				9CB767252BC9A8BD0014CA38 /* Express.m */,
 				9CCD87FD2BCB93A20093C921 /* VM.h */,
 				9CCD87FE2BCB93A20093C921 /* VM.m */,
+				9CD526972BEA5CC8008179F5 /* inst.txt */,
 			);
 			path = parser;
 			sourceTree = "<group>";

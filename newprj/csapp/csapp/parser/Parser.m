@@ -103,23 +103,29 @@ typedef NS_ENUM(NSInteger, StateType) {
         ];
 
         self.instMap = @{
-            @"mov" : @(INST_MOV),
-            @"push" : @(INST_PUSH),
-            @"pop" : @(INST_POP),
-            @"leave" : @(INST_LEAVE),
-            @"call" : @(INST_CALL),
-            @"ret" : @(INST_RET),
-            @"add" : @(INST_ADD),
-            @"sub" : @(INST_SUB),
-            @"cmp" : @(INST_CMP),
-            @"jne" : @(INST_JNE),
-            @"jmp" : @(INST_JMP),
+            @"movq" : @(INST_MOV),
+            @"movl" : @(INST_MOV),
+            @"pushq" : @(INST_PUSH),
+            @"popq" : @(INST_POP),
+            @"leaveq" : @(INST_LEAVE),
+            @"callq" : @(INST_CALL),
+            @"retq" : @(INST_RET),
+            @"addl" : @(INST_ADD),
+            @"subl" : @(INST_SUB),
+            @"cmpq" : @(INST_CMP),
+            @"jneq" : @(INST_JNE),
+            @"jmpq" : @(INST_JMP),
+            @"xorl" : @(INST_XOR),
         };
-        
         self.regMap = @{
             @"rax" : @(RegType_rax),
             @"rsi" : @(RegType_rsi),
             @"rdi" : @(RegType_rdi),
+            @"rbp" : @(RegType_rbp),
+            @"rsp" : @(RegType_rsp),
+            @"edi" : @(RegType_edi),
+            @"esi" : @(RegType_esi),
+            @"eax" : @(RegType_eax),
         };
     }
     return self;
@@ -146,7 +152,7 @@ typedef NS_ENUM(NSInteger, StateType) {
         if (a >= 'a' && a <= 'z') {
             token = [self parseInst];
             type = TokenTypeInst;
-        } else if (a >= '0' && a <= '9') {
+        } else if ((a >= '0' && a <= '9') || a == '-') {
             token = [self parseNumber];
             type = TokenTypeNum;
         } else if (a == '%') {
@@ -219,6 +225,13 @@ typedef NS_ENUM(NSInteger, StateType) {
 
 - (NSString *)parseNumber {
     char a = self.pre;
+    BOOL isSub = NO;
+    if (a == '-') {
+        isSub = YES;
+        [self next];
+        a = self.pre;
+    }
+    
     char inst[64] = {'\0'};
     int offset = 0;
     while (a != ' ' && a != '\0' &&
@@ -229,7 +242,7 @@ typedef NS_ENUM(NSInteger, StateType) {
     if (offset == 0) {
         NSAssert(NO, @"数字解析出错");
     }
-    return [NSString stringWithFormat:@"%s", inst];
+    return [NSString stringWithFormat:@"%@%s", isSub ? @"-" : @"", inst];
 }
 
 - (NSString *)parseRegister {

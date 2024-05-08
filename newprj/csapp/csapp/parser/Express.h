@@ -23,6 +23,7 @@ typedef NS_ENUM(NSInteger, InstType) {
     INST_CMP,           // 8
     INST_JNE,           // 9
     INST_JMP,           // 10
+    INST_XOR,           // 11
 };
 
 @interface Express : NSObject
