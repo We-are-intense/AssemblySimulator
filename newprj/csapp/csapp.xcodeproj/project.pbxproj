@@ -12,6 +12,7 @@
 		9CC0775A2BBC45E300C29EB8 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CC077592BBC45E300C29EB8 /* main.m */; };
 		9CC973502BC58D0700AAE92B /* Parser.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CC9734F2BC58D0700AAE92B /* Parser.m */; };
 		9CCD87FF2BCB93A20093C921 /* VM.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CCD87FE2BCB93A20093C921 /* VM.m */; };
+		9CD8CA762BEBB0AE003A6F86 /* Parser2.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CD8CA752BEBB0AE003A6F86 /* Parser2.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -38,6 +39,8 @@
 		9CCD87FD2BCB93A20093C921 /* VM.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VM.h; sourceTree = "<group>"; };
 		9CCD87FE2BCB93A20093C921 /* VM.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VM.m; sourceTree = "<group>"; };
 		9CD526972BEA5CC8008179F5 /* inst.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = inst.txt; sourceTree = "<group>"; };
+		9CD8CA742BEBB0AE003A6F86 /* Parser2.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Parser2.h; sourceTree = "<group>"; };
+		9CD8CA752BEBB0AE003A6F86 /* Parser2.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Parser2.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -105,6 +108,8 @@
 			children = (
 				9CC9734E2BC58D0700AAE92B /* Parser.h */,
 				9CC9734F2BC58D0700AAE92B /* Parser.m */,
+				9CD8CA742BEBB0AE003A6F86 /* Parser2.h */,
+				9CD8CA752BEBB0AE003A6F86 /* Parser2.m */,
 				9CB340442BC97D7200E4CC7C /* Node.h */,
 				9CB340452BC97D7200E4CC7C /* Node.m */,
 				9CB767242BC9A8BD0014CA38 /* Express.h */,
@@ -176,6 +181,7 @@
 				9CC973502BC58D0700AAE92B /* Parser.m in Sources */,
 				9CB340462BC97D7200E4CC7C /* Node.m in Sources */,
 				9CB767262BC9A8BD0014CA38 /* Express.m in Sources */,
+				9CD8CA762BEBB0AE003A6F86 /* Parser2.m in Sources */,
 				9CC0775A2BBC45E300C29EB8 /* main.m in Sources */,
 				9CCD87FF2BCB93A20093C921 /* VM.m in Sources */,
 			);
