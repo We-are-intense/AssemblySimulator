@@ -10,6 +10,7 @@
 		9CB340462BC97D7200E4CC7C /* Node.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CB340452BC97D7200E4CC7C /* Node.m */; };
 		9CB767262BC9A8BD0014CA38 /* Express.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CB767252BC9A8BD0014CA38 /* Express.m */; };
 		9CC0775A2BBC45E300C29EB8 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CC077592BBC45E300C29EB8 /* main.m */; };
+		9CC3E0702BF4E7FD002746B5 /* Token.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CC3E06F2BF4E7FD002746B5 /* Token.m */; };
 		9CC973502BC58D0700AAE92B /* Parser.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CC9734F2BC58D0700AAE92B /* Parser.m */; };
 		9CCD87FF2BCB93A20093C921 /* VM.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CCD87FE2BCB93A20093C921 /* VM.m */; };
 		9CD8CA762BEBB0AE003A6F86 /* Parser2.m in Sources */ = {isa = PBXBuildFile; fileRef = 9CD8CA752BEBB0AE003A6F86 /* Parser2.m */; };
@@ -34,6 +35,8 @@
 		9CB767252BC9A8BD0014CA38 /* Express.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Express.m; sourceTree = "<group>"; };
 		9CC077562BBC45E300C29EB8 /* csapp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = csapp; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CC077592BBC45E300C29EB8 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		9CC3E06E2BF4E7FD002746B5 /* Token.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Token.h; sourceTree = "<group>"; };
+		9CC3E06F2BF4E7FD002746B5 /* Token.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Token.m; sourceTree = "<group>"; };
 		9CC9734E2BC58D0700AAE92B /* Parser.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Parser.h; sourceTree = "<group>"; };
 		9CC9734F2BC58D0700AAE92B /* Parser.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Parser.m; sourceTree = "<group>"; };
 		9CCD87FD2BCB93A20093C921 /* VM.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VM.h; sourceTree = "<group>"; };
@@ -110,6 +113,8 @@
 				9CC9734F2BC58D0700AAE92B /* Parser.m */,
 				9CD8CA742BEBB0AE003A6F86 /* Parser2.h */,
 				9CD8CA752BEBB0AE003A6F86 /* Parser2.m */,
+				9CC3E06E2BF4E7FD002746B5 /* Token.h */,
+				9CC3E06F2BF4E7FD002746B5 /* Token.m */,
 				9CB340442BC97D7200E4CC7C /* Node.h */,
 				9CB340452BC97D7200E4CC7C /* Node.m */,
 				9CB767242BC9A8BD0014CA38 /* Express.h */,
@@ -178,6 +183,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9CC3E0702BF4E7FD002746B5 /* Token.m in Sources */,
 				9CC973502BC58D0700AAE92B /* Parser.m in Sources */,
 				9CB340462BC97D7200E4CC7C /* Node.m in Sources */,
 				9CB767262BC9A8BD0014CA38 /* Express.m in Sources */,
