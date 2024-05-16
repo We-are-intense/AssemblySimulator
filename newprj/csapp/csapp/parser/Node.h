@@ -59,9 +59,6 @@ typedef NS_ENUM(NSInteger, OdType) {
  hex = 0x(0-1 | a-f | A-F)*
  character = (a-z | A-Z)*
  */
-
-
-
 typedef NS_ENUM(NSInteger, RegType) {
     RegType_none,
     RegType_rax,
