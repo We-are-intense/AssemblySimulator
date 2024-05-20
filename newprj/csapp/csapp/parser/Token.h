@@ -10,7 +10,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSInteger, TokenType) {
-    TokenTypeNone   , //--> mov
+    TokenTypeNone   , //-->
     TokenTypeString , //--> mov
     TokenTypeHex    , //--> 0x123
     TokenTypeDecimal, //--> 123

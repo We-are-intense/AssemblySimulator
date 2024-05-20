@@ -7,10 +7,10 @@
 
 /*
  label = character:
- statement =  inst
-            | inst express
-            | inst express, express
- inst = character
+ statement =  inst none
+            | inst express none
+            | inst express, express none
+
  express =    imm
             | mm_imm
             | reg
@@ -23,6 +23,7 @@
             | mm_reg1_reg2_s
             | mm_imm_reg1_reg2_s
  
+ inst = character
  mm_imm_reg1_reg2_s = num mm_reg1_reg2_s
  mm_reg1_reg2_s = (reg, reg, s)
  mm_imm_reg2_s = num mm_reg2_s
@@ -39,6 +40,7 @@
  decimal = (0-9)*
  hex = 0x(0-1 | a-f | A-F)*
  character = (a-z | A-Z)*
+ none = \n
  */
 #import "Parser2.h"
 #import "Token.h"
@@ -50,6 +52,8 @@
 @property (nonatomic, assign) int start;
 @property (nonatomic, strong) NSMutableArray <Token *>*tokens;
 @property (nonatomic, strong) NSMutableArray <NSString *>*chars;
+@property (nonatomic, strong) NSDictionary *instMap;
+@property (nonatomic, strong) NSDictionary *regMap;
 @end
 
 @implementation Parser2 {
@@ -62,6 +66,31 @@
     if (self) {
         self.tokens = [NSMutableArray array];
         self.chars = [NSMutableArray array];
+        self.instMap = @{
+            @"movq" : @(INST_MOV),
+            @"movl" : @(INST_MOV),
+            @"pushq" : @(INST_PUSH),
+            @"popq" : @(INST_POP),
+            @"leaveq" : @(INST_LEAVE),
+            @"callq" : @(INST_CALL),
+            @"retq" : @(INST_RET),
+            @"addl" : @(INST_ADD),
+            @"subl" : @(INST_SUB),
+            @"cmpq" : @(INST_CMP),
+            @"jneq" : @(INST_JNE),
+            @"jmpq" : @(INST_JMP),
+            @"xorl" : @(INST_XOR),
+        };
+        self.regMap = @{
+            @"rax" : @(RegType_rax),
+            @"rsi" : @(RegType_rsi),
+            @"rdi" : @(RegType_rdi),
+            @"rbp" : @(RegType_rbp),
+            @"rsp" : @(RegType_rsp),
+            @"edi" : @(RegType_edi),
+            @"esi" : @(RegType_esi),
+            @"eax" : @(RegType_eax),
+        };
     }
     return self;
 }
@@ -75,12 +104,37 @@
     while (a) {
         Token *b = [self peekNToken:1];
         
+        /// 标签
         if (a.tokenType == TokenTypeString &&
-            a.tokenType == TokenTypeColon) {
+            b.tokenType == TokenTypeColon) {
             
+            return nil;
         }
         
-        
+        if (a.tokenType == TokenTypeString) {
+            // 跳过 Inst
+            Token *inst = [self nextToken];
+            if (inst.tokenType != TokenTypeString) {
+                NSAssert(NO, @"inst is null");
+            }
+            Express *express =  [Express new];
+            express.op = [self.instMap[inst.token] integerValue];
+            if (b.tokenType == TokenTypeNone) {
+                return express;
+            } else {
+                express.src = [self parserNode];
+                a = [self peekToken];
+                if (a.tokenType == TokenTypeNone) {
+                    return express;
+                } else if (a.tokenType == TokenTypeComma) {
+                    [self nextToken];// 跳过 ","
+                    express.dst = [self parserNode];
+                    return express;
+                } else {
+                    NSAssert(NO, @"parser node error");
+                }
+            }
+        }
     }
     return nil;
 }
@@ -93,6 +147,13 @@
     }
     self.start = 0;
 }
+#pragma mark - parser token
+- (Node *)parserNode {
+    
+    
+    return nil;
+}
+
 #pragma mark - token
 - (Token *)nextToken {
     if (self.tokens.count != 0) {
@@ -138,7 +199,7 @@
                 // 0 1 2 3
                 char b = [self peekNChar:1];
                 char c = [self peekNChar:2];
-                if (a == '0' && (b == 'x' || b == 'X')) {
+                if (b == '0' && (c == 'x' || c == 'X')) {
                     return [self parseHex];
                 } else {
                     return [self parseDecimal];
@@ -165,6 +226,11 @@
             return [self parseComma];
         } else if (a == '%') {
             return [self parsePersent];
+        } else if (a == '\n') {
+            Token *token = [Token new];
+            token.token = @"\n";
+            token.tokenType = TokenTypeNone;
+            return token;
         } else {
             [self nextChar];
             a = [self peekChar];
@@ -201,7 +267,7 @@
     }
     
     char b = [self peekNChar:1];
-    if (a == '0' && (a == 'x' || a == 'X')) {
+    if (a == '0' && (b == 'x' || b == 'X')) {
         [self nextChar];
         [self nextChar];
         char buffer[64] = {'\n'};

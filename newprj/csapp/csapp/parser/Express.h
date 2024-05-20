@@ -24,12 +24,14 @@ typedef NS_ENUM(NSInteger, InstType) {
     INST_JNE,           // 9
     INST_JMP,           // 10
     INST_XOR,           // 11
+    INST_SEG,           // 12
 };
 
 @interface Express : NSObject
 @property (nonatomic, assign) InstType op;
 @property (nonatomic, strong) Node *src;
 @property (nonatomic, strong) Node *dst;
+@property (nonatomic, assign) NSUInteger line;
 @end
 
 NS_ASSUME_NONNULL_END
