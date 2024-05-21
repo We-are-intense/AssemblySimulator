@@ -12,7 +12,7 @@
             | inst express, express none
 
  express =    imm
-            | mm_imm
+            | num
             | reg
             | mm_reg
             | mm_imm_reg
@@ -138,19 +138,57 @@
     }
     return nil;
 }
-
-#pragma mark - Private Methods
-- (void)resetBuffer {
-    for (int i = 0; i < maxBufferSize; i++) {
-        buffer[i] = '\0';
-        tokenChar[i] = '\0';
-    }
-    self.start = 0;
-}
 #pragma mark - parser token
 - (Node *)parserNode {
+    /// 1. imm = $num
+    Token *a = [self peekToken];
+    if (a.tokenType == TokenTypeDollar) {
+        Token *b = [self peekNToken:1];
+        if (b.tokenType == TokenTypeDecimal ||
+            b.tokenType == TokenTypeHex) {
+            [self nextToken]; /// 跳过 $
+            [self nextToken]; /// 跳过 num
+            Node *node = [Node new];
+            node.type = IMM;
+            node.imm = [self parseImm:b.token];
+            return node;
+        } else {
+            NSAssert(NO, @"parser imm failed");
+        }
+    }
     
-    
+    if (a.tokenType == TokenTypeDecimal ||
+        a.tokenType == TokenTypeHex) {
+        Node *node = [Node new];
+        node.imm = [self parseImm:a.token];
+        [self nextToken];/// 跳过 0x123
+        Token *b = [self peekToken];
+        if (b.tokenType == TokenTypeComma ||
+            b.tokenType == TokenTypeNone) {
+            /// movl 0x123, %rax
+            if (b.tokenType == TokenTypeComma) {
+                [self nextToken];/// 跳过 ,
+            }
+            node.type = MM_IMM;
+            return node;
+        } else if (b.tokenType == TokenTypeLP) {
+            [self nextToken];/// 跳过 (
+            b = [self peekToken];
+            if (b.tokenType == TokenTypePersent) {
+                /// movl  -12(%rbp), %esi
+                /// movl 0x12(%rsi, %rdi), %rax
+                /// movl 0x12(%rsi, %rdi, s), %rax
+                
+            } else if (b.tokenType == TokenTypeComma) {
+                /// movl 0x12(, %rsi, s), %rax
+                
+            } else {
+                NSAssert(NO, @"parser node failed can not match");
+            }
+            
+            
+        }
+    }
     return nil;
 }
 
@@ -435,5 +473,25 @@
     [str getCharacters:a];
     return a[0];
 }
-
+#pragma mark - Private Methods
+- (void)resetBuffer {
+    for (int i = 0; i < maxBufferSize; i++) {
+        buffer[i] = '\0';
+        tokenChar[i] = '\0';
+    }
+    self.start = 0;
+}
+- (NSInteger)parseImm:(NSString *)imm {
+    NSAssert(imm, @"Imm 字符串 不能为空");
+    if ([imm hasPrefix:@"0x"] || [imm hasPrefix:@"0X"]) {
+        NSAssert(imm.length > 2, @"解析 16字符串 to num error only 0x ");
+        imm = [imm substringFromIndex:2];
+        const char *char_str = [imm cStringUsingEncoding:NSASCIIStringEncoding];
+        NSInteger hexNum;
+        sscanf(char_str, "%lx", &hexNum);
+        return hexNum;
+    } else {
+        return [imm integerValue];
+    }
+}
 @end
