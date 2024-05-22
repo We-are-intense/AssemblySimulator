@@ -165,7 +165,7 @@
         Token *b = [self peekToken];
         if (b.tokenType == TokenTypeComma ||
             b.tokenType == TokenTypeNone) {
-            /// movl 0x123, %rax
+            /// 0x123
             if (b.tokenType == TokenTypeComma) {
                 [self nextToken];/// 跳过 ,
             }
@@ -175,9 +175,63 @@
             [self nextToken];/// 跳过 (
             b = [self peekToken];
             if (b.tokenType == TokenTypePersent) {
-                /// movl  -12(%rbp), %esi
-                /// movl 0x12(%rsi, %rdi), %rax
-                /// movl 0x12(%rsi, %rdi, s), %rax
+                // -12(%rbp)
+                node.reg1 = [self parserReg];
+                b = [self peekToken];
+                if (b.tokenType == TokenTypeRP) {
+                    [self nextToken];
+                    if ([self peekToken].tokenType == TokenTypeComma) {
+                        [self nextToken];/// 跳过 ,
+                    }
+                    return node;
+                } else if (b.tokenType == TokenTypeComma) {
+                    //  0x12(%rsi , %rdi)
+                    //  0x12(%rsi , %rdi, s)
+                    //            |
+                    [self nextToken];/// 跳过 ,
+                    //  0x12(%rsi , %rdi)
+                    //  0x12(%rsi , %rdi, s)
+                    //              |
+                    b = [self peekToken];
+                    if (b.tokenType == TokenTypePersent) {
+                        node.reg2 = [self parserReg];
+                        b = [self peekToken];
+                        if (b.tokenType == TokenTypeComma) {
+                            //  0x12(%rsi , %rdi , s)
+                            //                   |
+                            [self nextToken];/// 跳过 ,
+                            b = [self peekToken];
+                            if (b.tokenType == TokenTypeDecimal ||
+                                b.tokenType == TokenTypeHex) {
+                                //  0x12(%rsi , %rdi , s)
+                                //                     |
+                                node.s = [self parseImm:b.token];
+                                [self nextToken];
+                                b = [self peekToken];
+                                if (b.tokenType == TokenTypeRP) {
+                                    //  0x12(%rsi , %rdi , s )
+                                    //                       |
+                                    [self nextToken]; // 跳过 )
+                                    return node;
+                                } else {
+                                    
+                                }
+                                
+                            }
+                        } else  {
+                            //  0x12(%rsi , %rdi )
+                            //                   |
+                        }
+                        
+                        
+                    } else {
+                        NSAssert(NO, @"parser node reg2 failed");
+                    }
+                }
+                
+                
+                
+                
                 
             } else if (b.tokenType == TokenTypeComma) {
                 /// movl 0x12(, %rsi, s), %rax
@@ -185,11 +239,14 @@
             } else {
                 NSAssert(NO, @"parser node failed can not match");
             }
-            
-            
         }
     }
     return nil;
+}
+
+- (RegType)parserReg {
+    
+    return RegType_none;
 }
 
 #pragma mark - token
