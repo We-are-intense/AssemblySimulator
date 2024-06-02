@@ -25,6 +25,25 @@ typedef NS_ENUM(NSInteger, OdType) {
     MM_IMM_REG1_REG2_S /* mov 0x12(%rsi, %rdi, s), %rax M[Imm + REG1 + REG2 * s] 比例变址寻址 */
 };
 /*
+ 
+ $0x123
+ 0x123
+ %rax
+ mov (%rsi)         , %rax
+ mov (%rsi, %rdi)   , %rax
+ mov (    , %rsi, s), %rax
+ mov (%rsi, %rdi, s), %rax
+ 
+ mov $0x12              , %rax
+ mov 0x12               , %rax
+ mov 0x12(%rsi)         , %rax
+ mov 0x12(%rsi, %rdi)   , %rax
+ mov 0x12(, %rsi, s)    , %rax
+ mov 0x12(%rsi, %rdi, s), %rax
+ 
+ 
+ 
+ 
  label = character:
  statement =  inst
             | inst express
@@ -77,9 +96,6 @@ typedef NS_ENUM(NSInteger, RegType) {
 @property (nonatomic, assign) NSInteger s;
 @property (nonatomic, assign) RegType reg1;
 @property (nonatomic, assign) RegType reg2;
-
-- (void)reg:(NSString *)reg;
-
 @end
 
 NS_ASSUME_NONNULL_END

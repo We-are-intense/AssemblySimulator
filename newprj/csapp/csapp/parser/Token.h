@@ -10,16 +10,26 @@
 NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSInteger, TokenType) {
-    TokenTypeNone   , //-->
-    TokenTypeString , //--> mov
-    TokenTypeHex    , //--> 0x123
-    TokenTypeDecimal, //--> 123
-    TokenTypeDollar , //--> $
-    TokenTypeColon  , //--> :
-    TokenTypeLP     , //--> (
-    TokenTypeRP     , //--> )
-    TokenTypeComma  , //--> ,
-    TokenTypePersent, //--> %
+    TokenTypeNone   ,
+    TokenTypeEof    ,
+    //--> mov
+    TokenTypeString ,
+    //--> 0x123
+    TokenTypeHex    ,
+    //--> 123
+    TokenTypeDecimal,
+    //--> $
+    TokenTypeDollar ,
+    ///< :
+    TokenTypeColon  ,
+    ///< (
+    TokenTypeLP     ,
+    ///< )
+    TokenTypeRP     ,
+    ///< ,
+    TokenTypeComma  ,
+    ///< %
+    TokenTypePersent,
 };
 
 @interface Token : NSObject

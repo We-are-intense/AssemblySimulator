@@ -54,6 +54,7 @@
 @property (nonatomic, strong) NSMutableArray <NSString *>*chars;
 @property (nonatomic, strong) NSDictionary *instMap;
 @property (nonatomic, strong) NSDictionary *regMap;
+@property (nonatomic, strong) Express *preExp;
 @end
 
 @implementation Parser2 {
@@ -95,7 +96,7 @@
     return self;
 }
 
-- (Express *)parserWithInst:(NSString *)inst {
+- (Express *)parserWithInst:(NSString *)inst line:(NSInteger)line {
     [self resetBuffer];
     [self.tokens removeAllObjects];
     [self.chars removeAllObjects];
@@ -103,12 +104,16 @@
     Token *a = [self peekToken];
     while (a) {
         Token *b = [self peekNToken:1];
-        
         /// 标签
         if (a.tokenType == TokenTypeString &&
             b.tokenType == TokenTypeColon) {
-            
-            return nil;
+            Express *express =  [Express new];
+            express.op = INST_LAB;
+            express.line = line;
+            express.labelString = a.token;
+            self.preExp = express;
+            [self nextToken];[self nextToken];
+            return express;
         }
         
         if (a.tokenType == TokenTypeString) {
@@ -119,12 +124,12 @@
             }
             Express *express =  [Express new];
             express.op = [self.instMap[inst.token] integerValue];
-            if (b.tokenType == TokenTypeNone) {
+            if (b.tokenType == TokenTypeEof) {
                 return express;
             } else {
                 express.src = [self parserNode];
                 a = [self peekToken];
-                if (a.tokenType == TokenTypeNone) {
+                if (a.tokenType == TokenTypeEof) {
                     return express;
                 } else if (a.tokenType == TokenTypeComma) {
                     [self nextToken];// 跳过 ","
@@ -140,8 +145,46 @@
 }
 #pragma mark - parser token
 - (Node *)parserNode {
-    /// 1. imm = $num
+    /*
+     pushq %rbp
+     mov (%rsi)             , %rax
+     mov (%rsi, %rdi)       , %rax
+     mov (    , %rsi, s)    , %rax
+     mov (%rsi, %rdi, s)    , %rax
+     
+     mov $0x12              , %rax
+     mov 0x12               , %rax
+     mov 0x12(%rsi)         , %rax
+     mov 0x12(%rsi, %rdi)   , %rax
+     mov 0x12(, %rsi, s)    , %rax
+     mov 0x12(%rsi, %rdi, s), %rax
+     */
+    /// 1. %rbp $0x12 0x12
     Token *a = [self peekToken];
+    if (a.tokenType == TokenTypePersent) {
+        /// 1. % rbp (, | eof)
+        ///    a  b     c
+        Token *b = [self peekNToken:1];
+        Token *c = [self peekNToken:2];
+        if (b.tokenType == TokenTypeString &&
+            (c.tokenType == TokenTypeComma ||
+             c.tokenType == TokenTypeEof)) {
+            
+        } else {
+            NSAssert(NO, @"parse reg failed");
+        }
+    } else if (a.tokenType == TokenTypeDollar) {
+        /// 2. $0x12
+    } else if (a.tokenType == TokenTypeDecimal ||
+               a.tokenType == TokenTypeHex) {
+        /// 3. 0x12 或者 0x12(...
+    } else {
+        /// 4. (...
+    }
+    
+    
+    
+    
     if (a.tokenType == TokenTypeDollar) {
         Token *b = [self peekNToken:1];
         if (b.tokenType == TokenTypeDecimal ||
@@ -244,6 +287,37 @@
     return nil;
 }
 
+- (void)parserLRPWithNode:(Node *)node {
+    /*
+     ( % rsi )
+     ( ,  % rsi, s )
+     ( % rsi , % rdi )
+     ( % rsi , % rdi , s )
+     a b  c  d e  f  g h i
+     */
+    Token *a = [self peekToken];
+    Token *b = [self peekNToken:1];
+    Token *c = [self peekNToken:2];
+    Token *d = [self peekNToken:3];
+    if (a.tokenType == TokenTypeLP) {
+        [self nextToken];
+    } else {
+        NSAssert(NO, @"parser LP failed");
+    }
+    
+    if (b.tokenType == TokenTypeComma) {
+        return;
+    }
+    
+    if (d.tokenType == TokenTypeRP) {
+        
+    }
+    
+    
+    
+}
+
+
 - (RegType)parserReg {
     
     return RegType_none;
@@ -324,14 +398,17 @@
         } else if (a == '\n') {
             Token *token = [Token new];
             token.token = @"\n";
-            token.tokenType = TokenTypeNone;
+            token.tokenType = TokenTypeEof;
             return token;
         } else {
             [self nextChar];
             a = [self peekChar];
         }
     }
-    return nil;
+    Token *token = [Token new];
+    token.token = @"\0";
+    token.tokenType = TokenTypeEof;
+    return token;
 }
 
 - (Token *)parseString {

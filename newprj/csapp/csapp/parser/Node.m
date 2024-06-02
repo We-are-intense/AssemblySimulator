@@ -9,8 +9,4 @@
 
 @implementation Node
 
-- (void)reg:(NSString *)reg {
-    
-}
-
 @end

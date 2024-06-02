@@ -25,6 +25,7 @@ typedef NS_ENUM(NSInteger, InstType) {
     INST_JMP,           // 10
     INST_XOR,           // 11
     INST_SEG,           // 12
+    INST_LAB,           // 13
 };
 
 @interface Express : NSObject
@@ -32,6 +33,8 @@ typedef NS_ENUM(NSInteger, InstType) {
 @property (nonatomic, strong) Node *src;
 @property (nonatomic, strong) Node *dst;
 @property (nonatomic, assign) NSUInteger line;
+@property (nonatomic, strong) NSString *labelString;
+@property (nonatomic, strong) Express *label;
 @end
 
 NS_ASSUME_NONNULL_END
