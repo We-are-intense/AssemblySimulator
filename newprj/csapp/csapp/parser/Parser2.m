@@ -164,165 +164,175 @@
     if (a.tokenType == TokenTypePersent) {
         /// 1. % rbp (, | eof)
         ///    a  b     c
-        Token *b = [self peekNToken:1];
-        Token *c = [self peekNToken:2];
-        if (b.tokenType == TokenTypeString &&
-            (c.tokenType == TokenTypeComma ||
-             c.tokenType == TokenTypeEof)) {
-            
-        } else {
-            NSAssert(NO, @"parse reg failed");
-        }
+        Node *node = [Node new];
+        node.reg1 = [self parserReg];
+        /// 1. % rbp (, | eof)
+        ///             a
+        node.type = REG;
+        [self isCommaOrEnd];
+        return node;
     } else if (a.tokenType == TokenTypeDollar) {
         /// 2. $0x12
+        [self nextToken]; // 跳过 $
+        a = [self peekToken];
+        if (a.tokenType != TokenTypeHex ||
+            a.tokenType != TokenTypeDecimal) {
+            NSAssert(NO, @"parse $0x12 failed can not find hex or decimal");
+        }
+        [self nextToken]; // 跳过 number
+        Node *node = [Node new];
+        node.imm = [self parseImm:a.token];
+        node.type = IMM;
+        [self isCommaOrEnd];
+        return node;
     } else if (a.tokenType == TokenTypeDecimal ||
                a.tokenType == TokenTypeHex) {
         /// 3. 0x12 或者 0x12(...
-    } else {
-        /// 4. (...
-    }
-    
-    
-    
-    
-    if (a.tokenType == TokenTypeDollar) {
-        Token *b = [self peekNToken:1];
-        if (b.tokenType == TokenTypeDecimal ||
-            b.tokenType == TokenTypeHex) {
-            [self nextToken]; /// 跳过 $
-            [self nextToken]; /// 跳过 num
-            Node *node = [Node new];
-            node.type = IMM;
-            node.imm = [self parseImm:b.token];
-            return node;
-        } else {
-            NSAssert(NO, @"parser imm failed");
-        }
-    }
-    
-    if (a.tokenType == TokenTypeDecimal ||
-        a.tokenType == TokenTypeHex) {
         Node *node = [Node new];
         node.imm = [self parseImm:a.token];
-        [self nextToken];/// 跳过 0x123
-        Token *b = [self peekToken];
-        if (b.tokenType == TokenTypeComma ||
-            b.tokenType == TokenTypeNone) {
-            /// 0x123
-            if (b.tokenType == TokenTypeComma) {
-                [self nextToken];/// 跳过 ,
-            }
-            node.type = MM_IMM;
-            return node;
-        } else if (b.tokenType == TokenTypeLP) {
-            [self nextToken];/// 跳过 (
-            b = [self peekToken];
-            if (b.tokenType == TokenTypePersent) {
-                // -12(%rbp)
-                node.reg1 = [self parserReg];
-                b = [self peekToken];
-                if (b.tokenType == TokenTypeRP) {
-                    [self nextToken];
-                    if ([self peekToken].tokenType == TokenTypeComma) {
-                        [self nextToken];/// 跳过 ,
-                    }
-                    return node;
-                } else if (b.tokenType == TokenTypeComma) {
-                    //  0x12(%rsi , %rdi)
-                    //  0x12(%rsi , %rdi, s)
-                    //            |
-                    [self nextToken];/// 跳过 ,
-                    //  0x12(%rsi , %rdi)
-                    //  0x12(%rsi , %rdi, s)
-                    //              |
-                    b = [self peekToken];
-                    if (b.tokenType == TokenTypePersent) {
-                        node.reg2 = [self parserReg];
-                        b = [self peekToken];
-                        if (b.tokenType == TokenTypeComma) {
-                            //  0x12(%rsi , %rdi , s)
-                            //                   |
-                            [self nextToken];/// 跳过 ,
-                            b = [self peekToken];
-                            if (b.tokenType == TokenTypeDecimal ||
-                                b.tokenType == TokenTypeHex) {
-                                //  0x12(%rsi , %rdi , s)
-                                //                     |
-                                node.s = [self parseImm:b.token];
-                                [self nextToken];
-                                b = [self peekToken];
-                                if (b.tokenType == TokenTypeRP) {
-                                    //  0x12(%rsi , %rdi , s )
-                                    //                       |
-                                    [self nextToken]; // 跳过 )
-                                    return node;
-                                } else {
-                                    
-                                }
-                                
-                            }
-                        } else  {
-                            //  0x12(%rsi , %rdi )
-                            //                   |
-                        }
-                        
-                        
-                    } else {
-                        NSAssert(NO, @"parser node reg2 failed");
-                    }
-                }
-                
-                
-                
-                
-                
-            } else if (b.tokenType == TokenTypeComma) {
-                /// movl 0x12(, %rsi, s), %rax
-                
-            } else {
-                NSAssert(NO, @"parser node failed can not match");
-            }
-        }
+        [self nextToken]; // 跳过 number
+        [self parserLRPWithNode:node hasImm:YES];
+        [self isCommaOrEnd];
+        return node;
+    } else {
+        /// 4. (...
+        Node *node = [Node new];
+        [self parserLRPWithNode:node hasImm:YES];
+        [self isCommaOrEnd];
+        return node;
     }
     return nil;
 }
 
-- (void)parserLRPWithNode:(Node *)node {
+- (void)parserLRPWithNode:(Node *)node
+                   hasImm:(BOOL)hasImm {
     /*
      ( % rsi )
      ( ,  % rsi, s )
      ( % rsi , % rdi )
      ( % rsi , % rdi , s )
-     a b  c  d e  f  g h i
      */
     Token *a = [self peekToken];
-    Token *b = [self peekNToken:1];
-    Token *c = [self peekNToken:2];
-    Token *d = [self peekNToken:3];
     if (a.tokenType == TokenTypeLP) {
-        [self nextToken];
-    } else {
-        NSAssert(NO, @"parser LP failed");
+        [self nextToken];// 跳过 (
     }
-    
-    if (b.tokenType == TokenTypeComma) {
+    /*
+     ( % rsi ) MM_REG
+     ( ,  % rsi, s ) MM_REG2_S
+     ( % rsi , % rdi ) MM_REG1_REG2
+     ( % rsi , % rdi , s ) MM_REG1_REG2_S
+       a  b  c  d e  f  g h i
+     */
+    a = [self peekToken];
+    if (a.tokenType == TokenTypeComma) {
+        [self nextToken];// 跳过 ,
+        node.reg2 = [self parserReg];
+        // ( ,  % rsi , s ) MM_REG2_S
+        //            a b c d
+        a        = [self peekToken];
+        if (a.tokenType == TokenTypeComma) {
+            [self nextToken];// 跳过 ,
+        } else {
+            NSAssert(NO, @"( ,%%rsi,s) parse second comma failed");
+        }
+        // ( ,  % rsi , s ) MM_REG2_S
+        //              a b c d
+        a        = [self peekToken];
+        if (a.tokenType == TokenTypeHex ||
+            a.tokenType == TokenTypeDecimal) {
+            node.s = [a.token intValue];
+            [self nextToken];
+        } else {
+            NSAssert(NO, @"(,%%rsi,s) parse s failed");
+        }
+        node.type = hasImm ? MM_IMM_REG2_S : MM_REG2_S;
+        // ( ,  % rsi , s ) MM_REG2_S
+        //                a b c d
+        [self nextToken];// 跳过 )
+        return;
+    } else {
+        node.reg1 = [self parserReg];
+    }
+    a = [self peekToken];
+    if (a.tokenType == TokenTypeRP) {
+        [self nextToken];// 跳过 )
+        node.type = hasImm ? MM_IMM_REG : MM_REG;
         return;
     }
-    
-    if (d.tokenType == TokenTypeRP) {
-        
+    a = [self peekToken];
+    /*
+     ( % rsi , % rdi ) MM_REG1_REG2
+     ( % rsi , % rdi , s ) MM_REG1_REG2_S
+             a  b  c  d e  f  g h i
+     */
+    if (a.tokenType == TokenTypeComma) {
+        [self nextToken];// 跳过 ,
+    } else {
+        NSAssert(NO, @"( %%rsi,%%rdi) first comma failed");
     }
-    
-    
-    
+    /*
+     ( % rsi , % rdi ) MM_REG1_REG2
+     ( % rsi , % rdi , s ) MM_REG1_REG2_S
+               a  b  c  d e  f  g h i
+     */
+    node.reg2 = [self parserReg];
+    /*
+     ( % rsi , % rdi ) MM_REG1_REG2
+     ( % rsi , % rdi , s ) MM_REG1_REG2_S
+                     a  b  c  d e  f  g h i
+     */
+    a = [self peekToken];
+    if (a.tokenType == TokenTypeRP) {
+        [self nextToken];// 跳过 )
+        node.type = hasImm ? MM_IMM_REG1_REG2 : MM_REG1_REG2;
+        return;
+    }
+    /*
+     ( % rsi , % rdi ) MM_REG1_REG2
+     ( % rsi , % rdi , s ) MM_REG1_REG2_S
+                     a  b  c  d e  f  g h i
+     */
+    if (a.tokenType == TokenTypeComma) {
+        [self nextToken];// 跳过 ,
+    } else {
+        NSAssert(NO, @"( %%rsi,%%rdi,s) second comma parse failed");
+    }
+    a = [self peekToken];
+    node.s = [a.token intValue];
+    [self nextToken];// 跳过 s
+    a = [self peekToken];
+    if (a.tokenType == TokenTypeRP) {
+        [self nextToken];// 跳过 )
+    } else {
+        NSAssert(NO, @"( %%rsi,%%rdi,s) parse RP failed");
+    }
+    node.type = hasImm ? MM_IMM_REG1_REG2_S : MM_REG1_REG2_S;
 }
 
 
 - (RegType)parserReg {
+    Token *a = [self peekToken];
+    Token *b = [self peekNToken:1];
     
-    return RegType_none;
+    if (a.tokenType != TokenTypePersent ||
+        b.tokenType != TokenTypeString) {
+        NSAssert(NO, @"parse reg failed");
+    }
+    [self nextToken];// 跳过 %
+    [self nextToken];// 跳过 string
+    RegType type = [self.regMap[b.token.lowercaseString] integerValue];
+    NSAssert(type != RegType_none, @"REG，reg 不能为 None");
+    return type;
 }
 
+- (BOOL)isCommaOrEnd {
+    Token *a = [self peekToken];
+    if (a.tokenType != TokenTypeComma ||
+        a.tokenType != TokenTypeEof) {
+        NSAssert(NO, @"%%rbp (, | eof) can not find , or eof");
+    }
+    return YES;
+}
 #pragma mark - token
 - (Token *)nextToken {
     if (self.tokens.count != 0) {
