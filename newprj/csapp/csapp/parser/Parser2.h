@@ -10,7 +10,10 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface Parser2 : NSObject
-- (Express *)parserWithInst:(NSString *)inst line:(NSInteger)line;
+- (Express *)parserWithInst:(NSString *)inst 
+                       line:(NSInteger)line;
+
+- (void)reLocation;
 @end
 
 NS_ASSUME_NONNULL_END

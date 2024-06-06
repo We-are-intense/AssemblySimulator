@@ -7,6 +7,7 @@
 
 #import <Foundation/Foundation.h>
 #import "Parser.h"
+#import "Parser2.h"
 #import "VM.h"
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
@@ -22,13 +23,23 @@ int main(int argc, const char * argv[]) {
         }
         NSArray *lines = [fileContent componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
         
-        Parser *p = [Parser new];
+        Parser2 *p = [Parser2 new];
         NSMutableArray *expresses = [NSMutableArray array];
-        for (NSString *line in lines) {
-            // 对每一行进行处理
-            Express *express = [p parserWithInst:line];
-            [expresses addObject:express];
+        for(int i = 0; i < lines.count; i++) {
+            NSString *line = lines[i];
+            NSLog(@"指令: %@", line);
+            Express *express = [p parserWithInst:line line:i];
+            if (express) {
+                [expresses addObject:express];
+            }
         }
+        [p reLocation];
+        
+//        for (NSString *line in lines) {
+//            // 对每一行进行处理
+//            Express *express = [p parserWithInst:line];
+//            [expresses addObject:express];
+//        }
         
 //        VM *vm = [[VM alloc] initWithExpresses:expresses];
 //        [vm run];

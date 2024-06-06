@@ -54,7 +54,8 @@
 @property (nonatomic, strong) NSMutableArray <NSString *>*chars;
 @property (nonatomic, strong) NSDictionary *instMap;
 @property (nonatomic, strong) NSDictionary *regMap;
-@property (nonatomic, strong) Express *preExp;
+@property (nonatomic, strong) NSMutableDictionary <NSString *, Express *>*labelDict;
+@property (nonatomic, strong) NSMutableArray <Node *>*reLocationNodes;
 @end
 
 @implementation Parser2 {
@@ -67,6 +68,8 @@
     if (self) {
         self.tokens = [NSMutableArray array];
         self.chars = [NSMutableArray array];
+        self.labelDict = [NSMutableDictionary dictionary];
+        self.reLocationNodes = [NSMutableArray array];
         self.instMap = @{
             @"movq" : @(INST_MOV),
             @"movl" : @(INST_MOV),
@@ -98,9 +101,7 @@
 
 - (Express *)parserWithInst:(NSString *)inst line:(NSInteger)line {
     [self resetBuffer];
-    [self.tokens removeAllObjects];
-    [self.chars removeAllObjects];
-    
+    [inst getCharacters:buffer];
     Token *a = [self peekToken];
     while (a) {
         Token *b = [self peekNToken:1];
@@ -111,12 +112,11 @@
             express.op = INST_LAB;
             express.line = line;
             express.labelString = a.token;
-            self.preExp = express;
-            [self nextToken];[self nextToken];
+            self.labelDict[express.labelString] = express;
+            [self nextToken];
+            [self nextToken];
             return express;
-        }
-        
-        if (a.tokenType == TokenTypeString) {
+        } else if (a.tokenType == TokenTypeString) {
             // 跳过 Inst
             Token *inst = [self nextToken];
             if (inst.tokenType != TokenTypeString) {
@@ -139,9 +139,18 @@
                     NSAssert(NO, @"parser node error");
                 }
             }
+        } else if (a.tokenType == TokenTypeEof) {
+            break;
+        } else {
+            NSAssert(NO, @"parser error");
         }
     }
     return nil;
+}
+
+- (void)reLocation {
+    
+    
 }
 #pragma mark - parser token
 - (Node *)parserNode {
@@ -158,10 +167,18 @@
      mov 0x12(%rsi, %rdi)   , %rax
      mov 0x12(, %rsi, s)    , %rax
      mov 0x12(%rsi, %rdi, s), %rax
+     callq sub
      */
-    /// 1. %rbp $0x12 0x12
+    
     Token *a = [self peekToken];
-    if (a.tokenType == TokenTypePersent) {
+    if (a.tokenType == TokenTypeString) {
+        /// callq sub
+        [self nextToken];
+        Node *node = [Node new];
+        node.labelString = a.token;
+        [self.reLocationNodes addObject:node];
+        return node;
+    } else if (a.tokenType == TokenTypePersent) {
         /// 1. % rbp (, | eof)
         ///    a  b     c
         Node *node = [Node new];
@@ -175,7 +192,7 @@
         /// 2. $0x12
         [self nextToken]; // 跳过 $
         a = [self peekToken];
-        if (a.tokenType != TokenTypeHex ||
+        if (a.tokenType != TokenTypeHex &&
             a.tokenType != TokenTypeDecimal) {
             NSAssert(NO, @"parse $0x12 failed can not find hex or decimal");
         }
@@ -327,11 +344,12 @@
 
 - (BOOL)isCommaOrEnd {
     Token *a = [self peekToken];
-    if (a.tokenType != TokenTypeComma ||
-        a.tokenType != TokenTypeEof) {
-        NSAssert(NO, @"%%rbp (, | eof) can not find , or eof");
+    if (a.tokenType == TokenTypeComma ||
+        a.tokenType == TokenTypeEof) {
+        return YES;
     }
-    return YES;
+    NSAssert(NO, @"%%rbp (, | eof) can not find , or eof");
+    return NO;
 }
 #pragma mark - token
 - (Token *)nextToken {
@@ -427,7 +445,7 @@
     int offset = 0;
     while ((a >= 'a' && a <= 'z') ||
            (a >= 'A' && a <= 'Z')) {
-        buffer[offset] = a;
+        buffer[offset++] = a;
         [self nextChar];
         a = [self peekChar];
     }
@@ -504,7 +522,7 @@
     if (a != '$') {
         NSAssert(NO, @"parse dollar failed");
     }
-    [self nextToken];
+    [self nextChar];
     Token *token = [Token new];
     token.token = @"$";
     token.tokenType = TokenTypeDollar;
@@ -516,7 +534,7 @@
     if (a != ':') {
         NSAssert(NO, @"parse colon failed");
     }
-    [self nextToken];
+    [self nextChar];
     Token *token = [Token new];
     token.token = @":";
     token.tokenType = TokenTypeColon;
@@ -527,7 +545,7 @@
     if (a != '(') {
         NSAssert(NO, @"parse LP failed");
     }
-    [self nextToken];
+    [self nextChar];
     Token *token = [Token new];
     token.token = @"(";
     token.tokenType = TokenTypeLP;
@@ -538,7 +556,7 @@
     if (a != ')') {
         NSAssert(NO, @"parse RP failed");
     }
-    [self nextToken];
+    [self nextChar];
     Token *token = [Token new];
     token.token = @")";
     token.tokenType = TokenTypeRP;
@@ -549,7 +567,7 @@
     if (a != ',') {
         NSAssert(NO, @"parse RP failed");
     }
-    [self nextToken];
+    [self nextChar];
     Token *token = [Token new];
     token.token = @",";
     token.tokenType = TokenTypeComma;
@@ -560,7 +578,7 @@
     if (a != '%') {
         NSAssert(NO, @"parse RP failed");
     }
-    [self nextToken];
+    [self nextChar];
     Token *token = [Token new];
     token.token = @"%";
     token.tokenType = TokenTypePersent;
@@ -624,6 +642,9 @@
         tokenChar[i] = '\0';
     }
     self.start = 0;
+    [self.tokens removeAllObjects];
+    [self.chars removeAllObjects];
+    [self.labelDict removeAllObjects];
 }
 - (NSInteger)parseImm:(NSString *)imm {
     NSAssert(imm, @"Imm 字符串 不能为空");

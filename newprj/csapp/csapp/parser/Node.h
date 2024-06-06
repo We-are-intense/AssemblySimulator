@@ -96,6 +96,8 @@ typedef NS_ENUM(NSInteger, RegType) {
 @property (nonatomic, assign) NSInteger s;
 @property (nonatomic, assign) RegType reg1;
 @property (nonatomic, assign) RegType reg2;
+@property (nonatomic, assign) NSUInteger address;
+@property (nonatomic,   copy) NSString *labelString;
 @end
 
 NS_ASSUME_NONNULL_END
