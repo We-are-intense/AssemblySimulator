@@ -236,13 +236,29 @@ static void parse_instruction(inst_t *inst, const char *str)
     skip_space(&s);
     if (*s != '\0') parse_fail(s, "unexpected trailing characters");
 
+    // x86 编码层面的约束：目的操作数不能是立即数，两个操作数不能同时是内存
+    if (inst->dst.type == OD_IMM) parse_fail(str, "destination cannot be immediate");
+    if (inst->src.type == OD_MEM && inst->dst.type == OD_MEM) {
+        parse_fail(str, "both operands cannot be memory");
+    }
+
     print_od("src", &inst->src);
     print_od("dst", &inst->dst);
 }
 
 /* ================================================================
- * 解码：所有内存写法共用一个公式
+ * 操作数的读与写
+ *
+ * 操作数在指令里只扮演两种角色："从这里取一个值" 或 "把值存到这里"。
+ * 把这两个动作做成 od_read / od_write，三种操作数的差异就被关在这两个
+ * 函数里面，handler 只写指令自己的语义，不再按操作数类型分支。
  * ================================================================ */
+static void exec_fail(const char *what)
+{
+    fprintf(stderr, "execute error: %s\n", what);
+    abort();
+}
+
 static uint64_t effective_address(const od_t *od, core_t *cr)
 {
     uint64_t addr = (uint64_t)od->imm;
@@ -251,177 +267,105 @@ static uint64_t effective_address(const od_t *od, core_t *cr)
     return addr;
 }
 
-// 返回值：OD_IMM → 立即数；OD_REG → 寄存器在宿主内存里的地址；OD_MEM → 模拟器虚拟地址
-static uint64_t decode_od(od_t *od, core_t *cr)
+static uint64_t od_read(const od_t *od, core_t *cr)
 {
     switch (od->type) {
         case OD_IMM: return (uint64_t)od->imm;
-        case OD_REG: return (uint64_t)reg_ptr(cr, od->reg);
-        case OD_MEM: return effective_address(od, cr);
-        default:     return 0;
+        case OD_REG: return *reg_ptr(cr, od->reg);
+        case OD_MEM: return read64bits_dram_virtual(effective_address(od, cr));
+        default:     exec_fail("read from empty operand"); return 0;
     }
 }
 
-// update the rip pointer to the next instruction sequentially
-static inline void next_rip(core_t *cr) {
-    // we are handling the fixed-length of assembly string here
-    // but their size can be variable as true X86 instructions
-    // that's because the operands' sizes follow the specific encoding rule
-    // the risc-v is a fixed length ISA
-    cr->rip = cr->rip + sizeof(char) * MAX_INSTRUCTION_CHAR;
-}
-// Private Methods
-static void mov_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
-    uint64_t src = decode_od(src_od, cr);
-    uint64_t dst = decode_od(dst_od, cr);
-    if (src_od->type == OD_IMM && dst_od->type == OD_REG) {
-        // src: immediate number (uint64_t bit map)
-        // dst: register
-        *(uint64_t *)dst = src;
-        next_rip(cr);
-        cr->flags.__cpu_flag_value = 0;
-    } else if (src_od->type == OD_REG && dst_od->type == OD_REG) {
-        // src: register
-        // dst: register
-        *(uint64_t *)dst = *(uint64_t *)src;
-        next_rip(cr);
-        cr->flags.__cpu_flag_value = 0;
-    } else if (src_od->type == OD_REG && dst_od->type == OD_MEM) {
-        // src: register
-        // dst: virtual address
-        write64bits_dram_virtual(dst, *(uint64_t *)src);
-        next_rip(cr);
-        cr->flags.__cpu_flag_value = 0;
-    } else if (src_od->type == OD_MEM && dst_od->type == OD_REG) {
-        *(uint64_t *)dst = read64bits_dram_virtual(src);
-        next_rip(cr);
-        cr->flags.__cpu_flag_value = 0;
-    } else {
-        assert(0);
+static void od_write(const od_t *od, core_t *cr, uint64_t value)
+{
+    switch (od->type) {
+        case OD_REG: *reg_ptr(cr, od->reg) = value; break;
+        case OD_MEM: write64bits_dram_virtual(effective_address(od, cr), value); break;
+        default:     exec_fail("operand is not writable");
     }
 }
 
-static void push_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
-    if (src_od->type != OD_REG) {
-        assert(0);
-    }
-    uint64_t src = decode_od(src_od, cr);
-    // subq $8, %rsp     # %rsp    = %rsp - 8
-    // movq %rbp, (%rsp) # *(%rsp) = %rbp
+// call / jmp 的操作数表示"跳到哪里"，不是"取什么值"：
+//   callq $0x400540、callq 0x400540 → 跳到 0x400540
+//   callq %rax                       → 跳到 rax 的值
+static uint64_t jump_target(const od_t *od, core_t *cr)
+{
+    if (od->type == OD_MEM) return effective_address(od, cr);
+    return od_read(od, cr);
+}
+
+static void push64(core_t *cr, uint64_t value)
+{
     cr->reg.rsp -= 8;
-    write64bits_dram_virtual(cr->reg.rsp, *(uint64_t *)src);
-    next_rip(cr);
-    cr->flags.__cpu_flag_value = 0;
+    write64bits_dram_virtual(cr->reg.rsp, value);
 }
 
-static void pop_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
-    if (src_od->type != OD_REG) {
-        assert(0);
-    }
-    uint64_t src = decode_od(src_od, cr);
-    // movq (%rsp), %rax
-    // addq $8, %rsp
-    *(uint64_t *)src = read64bits_dram_virtual(cr->reg.rsp);
+static uint64_t pop64(core_t *cr)
+{
+    uint64_t value = read64bits_dram_virtual(cr->reg.rsp);
     cr->reg.rsp += 8;
-    next_rip(cr);
-    cr->flags.__cpu_flag_value = 0;
+    return value;
 }
 
-static void call_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
-    uint64_t src = decode_od(src_od, cr);
-    // 400540 <top>:
-    //      400540: sub xxx, xxx
-    //      ......
-    //      400551: retq
-    //
-    //      ......
-    //      40055b: callq 400540<top>
-    //      400560: xxx
+#define SIGN(x) (((x) >> 63) & 0x1)
 
-    // callq:
-    //  push %rsp # %rsp --> 400560
-    //  1. 将下一条指令的地址存放在 %rsp 中
-    //  2. 跳转到函数 top 执行
-    // retq:
-    //  2. pop %rip # %rip --> 400560
-
-    // 下一条指令的地址
-    uint64_t next = cr->rip + sizeof(char) * MAX_INSTRUCTION_CHAR;
-    // push %rsp
-    cr->reg.rsp -= 8;
-    // 写入 %rsp 所指向的地址
-    write64bits_dram_virtual(cr->reg.rsp, next);
-    // 跳转到 src 执行代码
-    cr->rip = src;
-    cr->flags.__cpu_flag_value = 0;
+/* ================================================================
+ * 指令语义
+ * 进入 handler 时 rip 已经指向下一条指令（见 instruction_cycle），
+ * 顺序执行的指令不用管 rip；只有 call / ret / jmp 会改写它。
+ * mov / push / pop / call / ret 在 x86 上不影响标志位，所以这里也不碰 flags。
+ * ================================================================ */
+static void mov_handler(od_t *src, od_t *dst, core_t *cr)
+{
+    od_write(dst, cr, od_read(src, cr));
 }
 
-static void ret_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
-    cr->rip = read64bits_dram_virtual(cr->reg.rsp);
-    cr->reg.rsp += 8;
-    cr->flags.__cpu_flag_value = 0;
+static void push_handler(od_t *src, od_t *dst, core_t *cr)
+{
+    push64(cr, od_read(src, cr));
 }
 
-static void add_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
-    uint64_t src = decode_od(src_od, cr);
-    uint64_t dst = decode_od(dst_od, cr);
-    if (src_od->type == OD_REG && dst_od->type == OD_REG) {
-        // src: register (value: int64_t bit map)
-        // dst: register (value: int64_t bit map)
-        uint64_t val = *(uint64_t *)dst + *(uint64_t *)src;
-        // TODO: 更新 CPU flags
-        // 最高位 正数: 0 负数: 1
-        int val_sign = ((val >> 63) & 0x1);
-        int src_sign = ((*(uint64_t *)src >> 63) & 0x1);
-        int dst_sign = ((*(uint64_t *)dst >> 63) & 0x1);
-
-        // set condition flags
-        // 两无符号数相加，结果变小 无符号溢出
-        cr->flags.CF = (val < *(uint64_t *)src);
-        // 结果等于零
-        cr->flags.ZF = (val == 0);
-        // 正数: 0 负数: 1
-        cr->flags.SF = val_sign;
-        // 两个正数相加结果为负数，两个负数相加结果为正数
-        cr->flags.OF = (src_sign == 0 && dst_sign == 0 && val_sign == 1) ||
-                       (src_sign == 1 && dst_sign == 1 && val_sign == 0);
-        *(uint64_t *)dst = val;
-        next_rip(cr);
-    } else {
-        assert(0);
-    }
+static void pop_handler(od_t *src, od_t *dst, core_t *cr)
+{
+    od_write(src, cr, pop64(cr));
 }
-static void sub_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
-    uint64_t src = decode_od(src_od, cr);
-    uint64_t dst = decode_od(dst_od, cr);
-    if (src_od->type == OD_IMM && dst_od->type == OD_REG) {
-        // src: imm
-        // dst: register (value: int64_t bit map)
-        // dst = dst - src = dst + (-src)
-        uint64_t val = *(uint64_t *)dst + (~src + 1);
-        // TODO: 更新 CPU flags
-        // 最高位 正数: 0 负数: 1
-        int val_sign = ((val >> 63) & 0x1);
-        int src_sign = ((*(uint64_t *)src >> 63) & 0x1);
-        int dst_sign = ((*(uint64_t *)dst >> 63) & 0x1);
 
-        // set condition flags
-        // 两个数相减 val = dst - src, val > dst
-        cr->flags.CF = (val < *(uint64_t *)src);
-        // 结果等于零
-        cr->flags.ZF = (val == 0);
-        // 正数: 0 负数: 1
-        cr->flags.SF = val_sign;
-        // 1. 正数减去负数，结果却是负数
-        // 2. 负数减去正数，结果确是正数
-        cr->flags.OF = (src_sign == 1 && dst_sign == 0 && val_sign == 1) ||
-                       (src_sign == 0 && dst_sign == 1 && val_sign == 0);
-        *(uint64_t *)dst = val;
-        next_rip(cr);
-    } else {
-        assert(0);
-    }
+static void call_handler(od_t *src, od_t *dst, core_t *cr)
+{
+    push64(cr, cr->rip);              // 返回地址 = 下一条指令
+    cr->rip = jump_target(src, cr);
 }
+
+static void ret_handler(od_t *src, od_t *dst, core_t *cr)
+{
+    cr->rip = pop64(cr);
+}
+
+static void add_handler(od_t *src, od_t *dst, core_t *cr)
+{
+    uint64_t s = od_read(src, cr);
+    uint64_t d = od_read(dst, cr);
+    uint64_t r = d + s;
+    cr->flags.CF = (r < s);                                       // 无符号进位
+    cr->flags.ZF = (r == 0);
+    cr->flags.SF = SIGN(r);
+    cr->flags.OF = (SIGN(d) == SIGN(s)) && (SIGN(r) != SIGN(d));  // 同号相加变号
+    od_write(dst, cr, r);
+}
+
+static void sub_handler(od_t *src, od_t *dst, core_t *cr)
+{
+    uint64_t s = od_read(src, cr);
+    uint64_t d = od_read(dst, cr);
+    uint64_t r = d - s;
+    cr->flags.CF = (d < s);                                       // 无符号借位
+    cr->flags.ZF = (r == 0);
+    cr->flags.SF = SIGN(r);
+    cr->flags.OF = (SIGN(d) != SIGN(s)) && (SIGN(r) != SIGN(d));  // 异号相减变号
+    od_write(dst, cr, r);
+}
+
 void init_handler_table() {
     handler_table[INST_MOV]  = &mov_handler;
     handler_table[INST_PUSH] = &push_handler;
@@ -436,7 +380,13 @@ void instruction_cycle(core_t *cr) {
     const char *inst_str = (const char *)cr->rip;
     inst_t instr;
     parse_instruction(&instr, inst_str);
+
+    // 和真实 CPU 一样，先让 rip 指向下一条指令再执行。
+    // 指令是定长字符串（MAX_INSTRUCTION_CHAR），真实 x86 指令则是变长编码。
+    cr->rip += sizeof(char) * MAX_INSTRUCTION_CHAR;
+
     handler_t handler = handler_table[instr.op];
+    if (handler == NULL) exec_fail("instruction not implemented");
     handler(&(instr.src), &(instr.dst), cr);
 }
 
