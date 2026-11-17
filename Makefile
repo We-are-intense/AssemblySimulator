@@ -39,7 +39,21 @@ $(OUTPUT_DIR)/%.o: %.c
 run:
 	./$(EXECUTABLE)
 
-.PHONY: clean
+# 测试：test/ 下每个 .c 编译成一个独立可执行文件，依次运行，任一失败即退出非 0
+# 测试文件会 #include 被测的 .c 以访问 static 函数，所以链接时排除 main.o 和 instruction.o
+TEST_DIR  = ./test
+test_srcs = $(wildcard $(TEST_DIR)/*.c)
+test_bins = $(patsubst $(TEST_DIR)/%.c,$(OUTPUT_DIR)/test/%,$(test_srcs))
+test_objs = $(filter-out %/main.o %/instruction.o,$(code_objs))
+
+test: $(test_bins)
+	@for t in $(test_bins); do echo "== $$t"; $$t || exit 1; done
+
+$(OUTPUT_DIR)/test/%: $(TEST_DIR)/%.c $(test_objs) $(wildcard $(SRC_DIR)/*/*.c $(SRC_DIR)/*/*.h)
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -I$(SRC_DIR) $< $(test_objs) -o $@
+
+.PHONY: clean run test
 clean:
 	rm -f *.o *~ $(EXECUTABLE)
 	rm -r $(OUTPUT_DIR)

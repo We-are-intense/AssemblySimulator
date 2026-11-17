@@ -23,29 +23,34 @@ typedef enum OP
 
 
 
+// 操作数只有三种：立即数、寄存器、内存。
+// 内存操作数的 9 种 AT&T 写法都是同一个公式的特例：
+//     有效地址 = disp + base + index * scale
+// 写法里缺哪一项，就让那一项取"零元"：disp 取 0，base/index 取 REG_NONE，scale 取 1。
+//     0x12              → disp=0x12
+//     (%rsi)            → base=rsi
+//     0x12(%rsi)        → disp=0x12, base=rsi
+//     (%rsi,%rdi)       → base=rsi,  index=rdi
+//     0x12(,%rdi,4)     → disp=0x12, index=rdi, scale=4
+//     0x12(%rsi,%rdi,4) → 四项都有
 typedef enum OD_TYPE
 {
-    EMPTY,
-    IMM, /* $0x123 立即数 */
-    REG, /* rax 寄存器寻址 */
-    MM_IMM, /* mov 0x123, %rax 绝对寻址 0x123 对应地址内容放到 %rax */
-    MM_REG, /* mov (%rsi), %rax 间接寻址 */
-    MM_IMM_REG, /* mov 0x12(%rsi), %rax M[Imm + REG] (基址 + 偏移量) 寻址 */
-    MM_REG1_REG2, /* mov (%rsi, %rdi), %rax M[REG1 + REG2] 变址寻址 */
-    MM_IMM_REG1_REG2, /* mov 0x12(%rsi, %rdi), %rax M[Imm + REG1 + REG2] 变址寻址 */
-    MM_REG2_S, /* mov (, %rsi, s), %rax M[REG2 * s] 比例变址寻址 */
-    MM_IMM_REG2_S, /* mov 0x12(, %rsi, s), %rax M[Imm + REG2 * s] 比例变址寻址 */
-    MM_REG1_REG2_S, /* mov (%rsi, %rdi, s), %rax M[REG1 + REG2 * s] 比例变址寻址 */
-    MM_IMM_REG1_REG2_S /* mov 0x12(%rsi, %rdi, s), %rax M[Imm + REG1 + REG2 * s] 比例变址寻址 */
+    OD_EMPTY,
+    OD_IMM, /* $0x123 */
+    OD_REG, /* %rax   */
+    OD_MEM, /* disp(base, index, scale) */
 } od_type_t;
+
+#define REG_NONE (-1)
 
 typedef struct OD
 {
-    od_type_t type; // IMM, REG, MEM
-    uint64_t  imm;  // 立即数
-    uint64_t  s;    // 比例变址寻址,比例因子必须 1，2，4，8
-    uint64_t  reg1; // main src register
-    uint64_t  reg2; // dst register
+    od_type_t type;
+    int64_t   imm;   // OD_IMM: 立即数；OD_MEM: 位移 disp
+    int       reg;   // OD_REG: 寄存器编号
+    int       base;  // OD_MEM: 基址寄存器编号，REG_NONE 表示没有
+    int       index; // OD_MEM: 变址寄存器编号，REG_NONE 表示没有
+    uint64_t  scale; // OD_MEM: 比例因子 1/2/4/8，没写时为 1
 } od_t;
 
 typedef struct INSTRUCT_STRUCT
