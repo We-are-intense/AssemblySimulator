@@ -3,17 +3,7 @@
 // 因此 Makefile 链接测试时会排除 instruction.o，避免符号重复。
 #include "memory/instruction.c"
 
-static int fails = 0;
-
-#define CHECK(cond, ...)                                  \
-    do {                                                  \
-        if (!(cond)) {                                    \
-            printf("  FAIL %s:%d: ", __FILE__, __LINE__); \
-            printf(__VA_ARGS__);                          \
-            printf("\n");                                 \
-            fails++;                                      \
-        }                                                 \
-    } while (0)
+#include "test_common.h"
 
 // 解析一个内存操作数，检查各字段与算出的有效地址
 static void check_mem(const char *text, int64_t disp, int base, int index,
@@ -83,6 +73,19 @@ static void test_instructions(void)
     parse_instruction(&in, "retq");
     CHECK(in.op == INST_RET, "op=%d，应为 INST_RET", in.op);
     CHECK(in.src.type == OD_EMPTY && in.dst.type == OD_EMPTY, "retq 没有操作数");
+
+    puts("== 符号（标签）引用：只记名字，地址留给重定位");
+    parse_instruction(&in, "callq  sub");
+    print_od("src", &in.src);
+    CHECK(in.src.type == OD_MEM && strcmp(in.src.sym, "sub") == 0 && in.src.imm == 0,
+          "callq sub 的操作数应为 MEM，符号 sub");
+
+    parse_instruction(&in, "jne .L2");
+    CHECK(in.op == INST_JCC && in.cond == CC_NE && strcmp(in.src.sym, ".L2") == 0, "jne .L2");
+
+    parse_instruction(&in, "mov $main,%rax");
+    print_od("src", &in.src);
+    CHECK(in.src.type == OD_IMM && strcmp(in.src.sym, "main") == 0, "$main 应为带符号的立即数");
 }
 
 int main(void)
@@ -90,10 +93,5 @@ int main(void)
     test_memory_operands(&cores[ACTIVE_CORE]);
     test_instructions();
 
-    if (fails) {
-        printf("\n%d 项失败\n", fails);
-        return 1;
-    }
-    printf("\n全部通过\n");
-    return 0;
+    return finish();
 }

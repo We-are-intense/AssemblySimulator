@@ -75,6 +75,9 @@ typedef struct OD
     int       base;  // OD_MEM: 基址寄存器，REG_NONE 表示没有，必须是 64 位寄存器
     int       index; // OD_MEM: 变址寄存器，REG_NONE 表示没有，必须是 64 位寄存器
     uint64_t  scale; // OD_MEM: 比例因子 1/2/4/8，没写时为 1
+    // 操作数里引用的符号（标签），如 callq sub、jne .L2、$main。
+    // 解析时只记下名字，imm 暂为 0；汇编完所有行后由重定位把标签地址加到 imm 上。
+    char      sym[32];
 } od_t;
 
 typedef struct INSTRUCT_STRUCT
@@ -84,12 +87,42 @@ typedef struct INSTRUCT_STRUCT
     cond_t cond; // 仅 INST_JCC 使用
     od_t src;
     od_t dst;
-    char code[100];
+    char code[100]; // 源码文本，用于跟踪输出
 } inst_t;
 
-// commonly shared variables
-#define MAX_INSTRUCTION_CHAR 64
+/* ----------------------------------------------------------------
+ * 程序：汇编文本只解析一次，得到指令数组和标签表
+ *
+ * 代码段从 TEXT_BASE 开始，每条指令占 INST_SIZE 字节，所以
+ *     第 i 条指令的地址 = TEXT_BASE + i * INST_SIZE
+ * rip、call 压栈的返回地址、标签的值都是这种地址。
+ * 真实 x86 指令是变长编码，这里没有生成机器码，用定长槽位代替。
+ * ---------------------------------------------------------------- */
+#define TEXT_BASE        0x400000ULL
+#define INST_SIZE        4
+#define MAX_PROGRAM_INST 1024
+#define MAX_LABELS       256
 
-void test_parse_inst(uint64_t value, core_t *cr);
+typedef struct LABEL_STRUCT
+{
+    char name[32];
+    int  index; // 标签指向的指令下标
+} label_t;
+
+typedef struct PROGRAM_STRUCT
+{
+    inst_t  insts[MAX_PROGRAM_INST];
+    int     count;
+    label_t labels[MAX_LABELS];
+    int     nlabels;
+} program_t;
+
+// program_t 较大（几百 KB），应声明为 static 或全局变量，不要放在栈上
+void     assemble(program_t *prog, const char *source);
+uint64_t label_address(const program_t *prog, const char *name);
+
 void init_handler_table();
-void instruction_cycle(core_t *cr);
+// 执行 rip 处的一条指令
+void instruction_cycle(core_t *cr, const program_t *prog);
+// 从 entry 标签开始执行，直到它 ret 回来；返回执行的指令条数。trace 非 0 时逐条打印
+int  run_program(core_t *cr, const program_t *prog, const char *entry, int trace);

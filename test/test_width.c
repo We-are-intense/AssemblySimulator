@@ -1,69 +1,13 @@
 // 操作宽度的测试：子寄存器读写、按宽度访问内存、按宽度算标志位、宽度推断与报错
 // 直接 include 实现文件，以便测试其中的 static 函数（见 Makefile 的 test 目标）。
 #include "memory/instruction.c"
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/wait.h>
-
-static int fails = 0;
-
-#define CHECK(cond, ...)                                  \
-    do {                                                  \
-        if (!(cond)) {                                    \
-            printf("  FAIL %s:%d: ", __FILE__, __LINE__); \
-            printf(__VA_ARGS__);                          \
-            printf("\n");                                 \
-            fails++;                                      \
-        }                                                 \
-    } while (0)
-
-#define RBP 0x7ffffffee110ULL
-#define RSP 0x7ffffffee0f0ULL
-
-static char line[MAX_INSTRUCTION_CHAR];
-
-static core_t *reset(void)
-{
-    core_t *cr = &cores[ACTIVE_CORE];
-    memset(cr, 0, sizeof(*cr));
-    memset(mm, 0, sizeof(mm));
-    cr->reg.rbp = RBP;
-    cr->reg.rsp = RSP;
-    return cr;
-}
-
-static void exec(core_t *cr, const char *text)
-{
-    snprintf(line, sizeof(line), "%s", text);
-    cr->rip = (uint64_t)line;
-    instruction_cycle(cr);
-}
+#include "test_common.h"
 
 static int parse_width(const char *text)
 {
     inst_t in;
     parse_instruction(&in, text);
     return in.width;
-}
-
-// 在子进程里解析，期望解析器报错退出（parse_fail 会 abort）
-static void expect_parse_fail(const char *text)
-{
-    fflush(stdout);
-    pid_t pid = fork();
-    if (pid == 0) {
-        int devnull = open("/dev/null", O_WRONLY);
-        dup2(devnull, STDOUT_FILENO);
-        dup2(devnull, STDERR_FILENO);
-        inst_t in;
-        parse_instruction(&in, text);
-        _exit(0);  // 走到这里说明没有报错
-    }
-    int status = 0;
-    waitpid(pid, &status, 0);
-    int failed = WIFSIGNALED(status);
-    printf("%-30s -> %s\n", text, failed ? "拒绝" : "接受");
-    CHECK(failed, "\"%s\" 应被解析器拒绝", text);
 }
 
 static void test_sub_registers(void)
@@ -174,10 +118,5 @@ int main(void)
     test_flags_width();
     test_infer();
 
-    if (fails) {
-        printf("\n%d 项失败\n", fails);
-        return 1;
-    }
-    printf("\n全部通过\n");
-    return 0;
+    return finish();
 }

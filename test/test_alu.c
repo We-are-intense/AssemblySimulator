@@ -2,36 +2,7 @@
 // 直接 include 实现文件，以便测试其中的 static 函数（见 Makefile 的 test 目标）。
 #include "memory/instruction.c"
 
-static int fails = 0;
-
-#define CHECK(cond, ...)                                  \
-    do {                                                  \
-        if (!(cond)) {                                    \
-            fprintf(stderr, "  FAIL %s:%d: ", __FILE__, __LINE__); \
-            fprintf(stderr, __VA_ARGS__);                 \
-            fprintf(stderr, "\n");                        \
-            fails++;                                      \
-        }                                                 \
-    } while (0)
-
-static char program[8][MAX_INSTRUCTION_CHAR];
-
-static core_t *reset(void)
-{
-    core_t *cr = &cores[ACTIVE_CORE];
-    memset(cr, 0, sizeof(*cr));
-    memset(mm, 0, sizeof(mm));
-    cr->reg.rbp = 0x7ffffffee110ULL;
-    cr->reg.rsp = 0x7ffffffee0f0ULL;
-    return cr;
-}
-
-static void exec(core_t *cr, const char *text)
-{
-    snprintf(program[0], MAX_INSTRUCTION_CHAR, "%s", text);
-    cr->rip = (uint64_t)program[0];
-    instruction_cycle(cr);
-}
+#include "test_common.h"
 
 // 直接调用 alu，按 C 的有/无符号语义核对四个标志位
 static void check_alu(alu_op_t op, uint64_t d, uint64_t s, int width)
@@ -81,7 +52,7 @@ static void test_flags(void)
 
 static void test_cmp_logic(void)
 {
-    fprintf(stderr, "%s\n", "== cmp 不写回；逻辑运算");
+    puts("== cmp 不写回；逻辑运算");
     core_t *cr = reset();
 
     cr->reg.rax = 5;
@@ -102,13 +73,13 @@ static void test_cmp_logic(void)
 
     exec(cr, "movq $0x7,-0x8(%rbp)");
     exec(cr, "subq $0x7,-0x8(%rbp)");
-    CHECK(read_dram_virtual(0x7ffffffee110ULL - 8, 8) == 0 && cr->flags.ZF == 1, "sub 写回内存");
+    CHECK(read_dram_virtual(RBP - 8, 8) == 0 && cr->flags.ZF == 1, "sub 写回内存");
 }
 
 // 每个条件跳转：给定 a、b，执行 cmp %rbx,%rax（即比较 a 与 b），检查是否跳转
 static void test_conditions(void)
 {
-    fprintf(stderr, "%s\n", "== 条件跳转：cmp b,a 后与 C 的比较结果对照");
+    puts("== 条件跳转：cmp b,a 后与 C 的比较结果对照");
     static const struct { const char *mnem; int signed_cmp; int rel; } jumps[] = {
         // rel: 0 ==, 1 !=, 2 <, 3 >=, 4 <=, 5 >, 6 结果为负, 7 结果非负, 8 总是
         {"je", 0, 0}, {"jne", 0, 1},
@@ -123,18 +94,18 @@ static void test_conditions(void)
     int before = fails;
 
     for (size_t k = 0; k < sizeof(jumps) / sizeof(jumps[0]); k++) {
+        // 0: cmp  1: 条件跳转  2: 不跳时落到这里  3: 跳转目标 T
+        char source[128];
+        snprintf(source, sizeof(source),
+                 "cmp %%rbx,%%rax\n%s T\nmov $0,%%rcx\nT: mov $1,%%rcx\n", jumps[k].mnem);
         for (int i = 0; i < nv; i++) {
             for (int j = 0; j < nv; j++) {
                 core_t *cr = reset();
                 int64_t a = vals[i], b = vals[j];
                 cr->reg.rax = (uint64_t)a;
                 cr->reg.rbx = (uint64_t)b;
-                exec(cr, "cmp %rbx,%rax");
-
-                snprintf(program[1], MAX_INSTRUCTION_CHAR, "%s $%p", jumps[k].mnem, (void *)program[5]);
-                cr->rip = (uint64_t)program[1];
-                instruction_cycle(cr);
-                int taken = (cr->rip == (uint64_t)program[5]);
+                exec_n(cr, source, 2);
+                int taken = (cr->rip == ADDR(3));
 
                 uint64_t ua = (uint64_t)a, ub = (uint64_t)b;
                 int lt = jumps[k].signed_cmp ? a < b : ua < ub;
@@ -157,48 +128,35 @@ static void test_conditions(void)
             }
         }
     }
-    fprintf(stderr, "  %d 组 (条件, a, b) 已核对%s\n",
+    printf("  %d 组 (条件, a, b) 已核对%s\n",
            (int)(sizeof(jumps) / sizeof(jumps[0])) * nv * nv, fails == before ? "" : "，有失败");
 }
 
 static void test_loop(void)
 {
-    fprintf(stderr, "%s\n", "== 循环：1 + 2 + ... + 10");
+    puts("== 循环：1 + 2 + ... + 10");
     core_t *cr = reset();
-    snprintf(program[0], MAX_INSTRUCTION_CHAR, "mov $0,%%rax");
-    snprintf(program[1], MAX_INSTRUCTION_CHAR, "mov $1,%%rcx");
-    snprintf(program[2], MAX_INSTRUCTION_CHAR, "add %%rcx,%%rax");     // loop:
-    snprintf(program[3], MAX_INSTRUCTION_CHAR, "add $1,%%rcx");
-    snprintf(program[4], MAX_INSTRUCTION_CHAR, "cmp $11,%%rcx");
-    snprintf(program[5], MAX_INSTRUCTION_CHAR, "jne $%p", (void *)program[2]);
-
-    cr->rip = (uint64_t)program[0];
-    int steps = 0;
-    while (cr->rip != (uint64_t)program[6] && steps < 1000) {
-        instruction_cycle(cr);
-        steps++;
-    }
+    assemble(&test_prog,
+             "main:\n"
+             "    mov $0,%rax\n"
+             "    mov $1,%rcx\n"
+             "loop:\n"
+             "    add %rcx,%rax\n"
+             "    add $1,%rcx\n"
+             "    cmp $11,%rcx\n"
+             "    jne loop\n"
+             "    ret\n");
+    int steps = run_program(cr, &test_prog, "main", 0);
     CHECK(cr->reg.rax == 55, "rax=%llu，应为 55", cr->reg.rax);
-    CHECK(steps == 2 + 10 * 4, "执行了 %d 条指令，应为 42", steps);
+    CHECK(steps == 2 + 10 * 4 + 1, "执行了 %d 条指令，应为 43", steps);
 }
 
 int main(void)
 {
     init_handler_table();
-    // 本测试会执行上千条指令，屏蔽 stdout 上的解析日志；失败信息和进度走 stderr
-    FILE *saved = stdout;
     test_flags();
-    stdout = fopen("/dev/null", "w");
     test_cmp_logic();
     test_conditions();
     test_loop();
-    fclose(stdout);
-    stdout = saved;
-
-    if (fails) {
-        printf("\n%d 项失败\n", fails);
-        return 1;
-    }
-    printf("\n全部通过\n");
-    return 0;
+    return finish();
 }

@@ -87,16 +87,20 @@ static void reg_write(core_t *cr, int r, uint64_t value)
  *
  *   instruction = mnemonic[suffix] [ operand [ ',' operand ] ]
  *   suffix      = 'b' | 'w' | 'l' | 'q'                    宽度 1/2/4/8
- *   operand     = '$' num                                  立即数
+ *   operand     = '$' disp                                 立即数
  *               | reg                                      寄存器
- *               | [num] [ '(' [reg] [ ',' reg [ ',' num ] ] ')' ]   内存
+ *               | [disp] [ '(' [reg] [ ',' reg [ ',' num ] ] ')' ]  内存
+ *   disp        = num | symbol                             symbol 即标签名，汇编后重定位
  *
  * 内存那一行的每一段都是"可选"，可选段不出现就保持默认值，
  * 9 种写法因此不需要分别识别。
  * ================================================================ */
+static int cur_line = 0;  // assemble 正在处理的源码行号，用于报错
+
 static void parse_fail(const char *at, const char *what)
 {
-    fprintf(stderr, "parse error: %s, at \"%s\"\n", what, at);
+    if (cur_line > 0) fprintf(stderr, "parse error (line %d): %s, at \"%s\"\n", cur_line, what, at);
+    else              fprintf(stderr, "parse error: %s, at \"%s\"\n", what, at);
     abort();
 }
 
@@ -134,6 +138,32 @@ static int64_t parse_num(const char **s)
     return (int64_t)v;
 }
 
+// 标签名：字母、'_' 或 '.' 开头（如 main、.L2），后面可跟字母数字
+static int is_sym_start(char c) { return isalpha((unsigned char)c) || c == '_' || c == '.'; }
+static int is_sym_char(char c)  { return isalnum((unsigned char)c) || c == '_' || c == '.'; }
+
+static void parse_symbol(const char **s, char *out, size_t size)
+{
+    const char *start = *s;
+    size_t len = 0;
+    while (is_sym_char(**s)) {
+        if (len + 1 >= size) parse_fail(start, "symbol too long");
+        out[len++] = *(*s)++;
+    }
+    out[len] = '\0';
+}
+
+// 位移 / 立即数：数字直接取值；符号先记名字，值留给重定位
+static void parse_disp(const char **s, od_t *od)
+{
+    if (is_sym_start(**s)) {
+        parse_symbol(s, od->sym, sizeof(od->sym));
+        od->imm = 0;
+    } else {
+        od->imm = parse_num(s);
+    }
+}
+
 static int parse_reg(const char **s)
 {
     const char *start = *s;
@@ -164,7 +194,7 @@ static void parse_operand(const char **s, od_t *od)
 
     if (accept(s, '$')) {
         od->type = OD_IMM;
-        od->imm  = parse_num(s);
+        parse_disp(s, od);
         return;
     }
     if (**s == '%') {
@@ -180,7 +210,7 @@ static void parse_operand(const char **s, od_t *od)
     od->index = REG_NONE;
     od->scale = 1;
 
-    if (**s != '(') od->imm = parse_num(s);           // [disp]
+    if (**s != '(') parse_disp(s, od);                // [disp]
     if (!accept(s, '(')) return;                      // 只有 disp：绝对寻址
     if (**s == '%') od->base = parse_addr_reg(s);     // [base]
     if (accept(s, ',')) {
@@ -289,15 +319,15 @@ static void print_od(const char *tag, const od_t *od)
 {
     switch (od->type) {
         case OD_IMM:
-            printf("  %s: IMM $%lld\n", tag, (long long)od->imm);
+            printf("  %s: IMM $%lld %s\n", tag, (long long)od->imm, od->sym);
             break;
         case OD_REG:
             printf("  %s: REG %%%s\n", tag, reg_label(od->reg));
             break;
         case OD_MEM:
-            printf("  %s: MEM disp=%lld base=%s index=%s scale=%llu\n", tag,
-                   (long long)od->imm, reg_label(od->base), reg_label(od->index),
-                   (unsigned long long)od->scale);
+            printf("  %s: MEM disp=%lld%s%s base=%s index=%s scale=%llu\n", tag,
+                   (long long)od->imm, od->sym[0] ? " sym=" : "", od->sym,
+                   reg_label(od->base), reg_label(od->index), (unsigned long long)od->scale);
             break;
         default:
             break;
@@ -326,9 +356,114 @@ static void parse_instruction(inst_t *inst, const char *str)
     }
     infer_width(inst, str);
 
-    printf("parse: %s  (width=%d)\n", str, inst->width);
-    print_od("src", &inst->src);
-    print_od("dst", &inst->dst);
+    snprintf(inst->code, sizeof(inst->code), "%s", str);
+}
+
+/* ================================================================
+ * 汇编：两遍
+ *
+ * 第一遍逐行扫描：标签记下"它指向第几条指令"，指令解析成 inst_t。
+ *   遇到 callq sub 时 sub 可能还没出现（定义在后面），所以只记下符号名。
+ * 第二遍重定位：此时所有标签都已知，把每个符号换成它的地址。
+ * 这正是 CSAPP 第 7 章链接器做的事：先收集符号，再回填引用处。
+ * ================================================================ */
+static int find_label(const program_t *prog, const char *name)
+{
+    for (int i = 0; i < prog->nlabels; i++) {
+        if (strcmp(prog->labels[i].name, name) == 0) return i;
+    }
+    return -1;
+}
+
+static uint64_t index_address(int index)
+{
+    return TEXT_BASE + (uint64_t)index * INST_SIZE;
+}
+
+uint64_t label_address(const program_t *prog, const char *name)
+{
+    int i = find_label(prog, name);
+    if (i < 0) {
+        fprintf(stderr, "undefined symbol: %s\n", name);
+        abort();
+    }
+    return index_address(prog->labels[i].index);
+}
+
+static void relocate(program_t *prog)
+{
+    for (int i = 0; i < prog->count; i++) {
+        od_t *ods[2] = {&prog->insts[i].src, &prog->insts[i].dst};
+        for (int k = 0; k < 2; k++) {
+            if (ods[k]->sym[0] == '\0') continue;
+            int l = find_label(prog, ods[k]->sym);
+            if (l < 0) {
+                cur_line = 0;
+                parse_fail(prog->insts[i].code, "undefined symbol");
+            }
+            ods[k]->imm += (int64_t)index_address(prog->labels[l].index);
+        }
+    }
+}
+
+// 处理一行（已去掉注释和首尾空白）
+static void assemble_line(program_t *prog, char *line)
+{
+    char *p = line;
+
+    // 标签：symbol ':'，后面可以跟同一行的指令
+    if (is_sym_start(*p)) {
+        char *q = p;
+        while (is_sym_char(*q)) q++;
+        if (*q == ':') {
+            *q = '\0';
+            if (strlen(p) >= sizeof(prog->labels[0].name)) parse_fail(p, "label too long");
+            if (find_label(prog, p) >= 0) parse_fail(p, "duplicate label");
+            if (prog->nlabels >= MAX_LABELS) parse_fail(p, "too many labels");
+            label_t *l = &prog->labels[prog->nlabels++];
+            snprintf(l->name, sizeof(l->name), "%s", p);
+            l->index = prog->count;
+            p = q + 1;
+            skip_space((const char **)&p);
+        }
+    }
+
+    if (*p == '\0') return;
+    if (*p == '.') return;  // 伪指令（.text、.globl main ...）对模拟没有影响，忽略
+
+    if (prog->count >= MAX_PROGRAM_INST) parse_fail(p, "too many instructions");
+    parse_instruction(&prog->insts[prog->count++], p);
+}
+
+void assemble(program_t *prog, const char *source)
+{
+    memset(prog, 0, sizeof(*prog));
+    cur_line = 0;
+
+    const char *s = source;
+    while (*s) {
+        const char *eol = strchr(s, '\n');
+        size_t len = eol ? (size_t)(eol - s) : strlen(s);
+        cur_line++;
+
+        char line[256];
+        if (len >= sizeof(line)) parse_fail(s, "line too long");
+        memcpy(line, s, len);
+        line[len] = '\0';
+
+        char *hash = strchr(line, '#');                  // AT&T 注释
+        if (hash) *hash = '\0';
+        char *end = line + strlen(line);
+        while (end > line && isspace((unsigned char)end[-1])) *--end = '\0';
+        const char *p = line;
+        skip_space(&p);
+
+        assemble_line(prog, (char *)p);
+        s = eol ? eol + 1 : s + len;
+    }
+
+    cur_line = 0;
+    relocate(prog);
 }
 
 /* ================================================================
@@ -535,23 +670,47 @@ void init_handler_table() {
     handler_table[INST_JCC]  = &jcc_handler;
 }
 
-void instruction_cycle(core_t *cr) {
-    const char *inst_str = (const char *)cr->rip;
-    inst_t instr;
-    parse_instruction(&instr, inst_str);
-
-    // 和真实 CPU 一样，先让 rip 指向下一条指令再执行。
-    // 指令是定长字符串（MAX_INSTRUCTION_CHAR），真实 x86 指令则是变长编码。
-    cr->rip += sizeof(char) * MAX_INSTRUCTION_CHAR;
-
-    handler_t handler = handler_table[instr.op];
-    if (handler == NULL) exec_fail("instruction not implemented");
-    handler(&instr, cr);
+/* ================================================================
+ * 取指与执行
+ * ================================================================ */
+static const inst_t *fetch(const core_t *cr, const program_t *prog)
+{
+    uint64_t off = cr->rip - TEXT_BASE;
+    if (cr->rip < TEXT_BASE || off % INST_SIZE != 0 || off / INST_SIZE >= (uint64_t)prog->count) {
+        fprintf(stderr, "execute error: rip 0x%llx is not an instruction\n", (unsigned long long)cr->rip);
+        abort();
+    }
+    return &prog->insts[off / INST_SIZE];
 }
 
-void test_parse_inst(uint64_t value, core_t *cr) {
-    (void)cr;
-    const char *inst_str = (const char *)value;
-    inst_t instr;
-    parse_instruction(&instr, inst_str);
+void instruction_cycle(core_t *cr, const program_t *prog)
+{
+    const inst_t *in = fetch(cr, prog);
+
+    // 和真实 CPU 一样，先让 rip 指向下一条指令再执行
+    cr->rip += INST_SIZE;
+
+    handler_t handler = handler_table[in->op];
+    if (handler == NULL) exec_fail("instruction not implemented");
+    handler(in, cr);
+}
+
+#define MAX_STEPS 100000
+
+int run_program(core_t *cr, const program_t *prog, const char *entry, int trace)
+{
+    // 先压一个返回地址：代码段末尾的下一个位置。entry 执行 ret 回到这里就结束，
+    // 就像操作系统调用 main、main 返回后进程退出
+    uint64_t exit_addr = index_address(prog->count);
+    push64(cr, exit_addr);
+    cr->rip = label_address(prog, entry);
+
+    int steps = 0;
+    while (cr->rip != exit_addr) {
+        if (steps >= MAX_STEPS) exec_fail("too many steps, infinite loop?");
+        if (trace) printf("0x%llx: %s\n", (unsigned long long)cr->rip, fetch(cr, prog)->code);
+        instruction_cycle(cr, prog);
+        steps++;
+    }
+    return steps;
 }
