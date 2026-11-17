@@ -197,17 +197,27 @@ static void parse_operand(const char **s, od_t *od)
 }
 
 // 助记符表只放词根；fixed_width 非 0 表示宽度固定（栈和跳转类指令在 64 位模式下总是 8 字节）
-static const struct { const char *name; op_t op; int fixed_width; } MNEMONICS[] = {
-    {"mov",  INST_MOV,  0},
-    {"add",  INST_ADD,  0},
-    {"sub",  INST_SUB,  0},
-    {"cmp",  INST_CMP,  0},
-    {"push", INST_PUSH, 8},
-    {"pop",  INST_POP,  8},
-    {"call", INST_CALL, 8},
-    {"ret",  INST_RET,  8},
-    {"jmp",  INST_JMP,  8},
-    {"jne",  INST_JNE,  8},
+// 所有跳转共用 INST_JCC，差别只在 cond
+static const struct { const char *name; op_t op; int fixed_width; cond_t cond; } MNEMONICS[] = {
+    {"mov",  INST_MOV,  0, 0},
+    {"add",  INST_ADD,  0, 0},
+    {"sub",  INST_SUB,  0, 0},
+    {"cmp",  INST_CMP,  0, 0},
+    {"and",  INST_AND,  0, 0},
+    {"or",   INST_OR,   0, 0},
+    {"xor",  INST_XOR,  0, 0},
+    {"push", INST_PUSH, 8, 0},
+    {"pop",  INST_POP,  8, 0},
+    {"call", INST_CALL, 8, 0},
+    {"ret",  INST_RET,  8, 0},
+    {"jmp",  INST_JCC,  8, CC_ALWAYS},
+    {"je",   INST_JCC,  8, CC_E},   {"jz",  INST_JCC, 8, CC_E},
+    {"jne",  INST_JCC,  8, CC_NE},  {"jnz", INST_JCC, 8, CC_NE},
+    {"jl",   INST_JCC,  8, CC_L},   {"jge", INST_JCC, 8, CC_GE},
+    {"jle",  INST_JCC,  8, CC_LE},  {"jg",  INST_JCC, 8, CC_G},
+    {"jb",   INST_JCC,  8, CC_B},   {"jae", INST_JCC, 8, CC_AE},
+    {"jbe",  INST_JCC,  8, CC_BE},  {"ja",  INST_JCC, 8, CC_A},
+    {"js",   INST_JCC,  8, CC_S},   {"jns", INST_JCC, 8, CC_NS},
 };
 
 static int suffix_width(char c)
@@ -221,8 +231,8 @@ static int suffix_width(char c)
     }
 }
 
-// 解析助记符，返回指令；*width 置为后缀或固定宽度给出的宽度，都没有时为 0
-static op_t parse_mnemonic(const char **s, int *width)
+// 解析助记符，填入 op / cond / width（后缀或固定宽度给出的宽度，都没有时为 0）
+static void parse_mnemonic(const char **s, inst_t *inst)
 {
     const char *start = *s;
     char word[16] = {0};
@@ -247,11 +257,12 @@ static op_t parse_mnemonic(const char **s, int *width)
 
         int fixed = MNEMONICS[i].fixed_width;
         if (fixed && suffix && suffix != fixed) parse_fail(start, "invalid suffix for this instruction");
-        *width = fixed ? fixed : suffix;
-        return MNEMONICS[i].op;
+        inst->op    = MNEMONICS[i].op;
+        inst->cond  = MNEMONICS[i].cond;
+        inst->width = fixed ? fixed : suffix;
+        return;
     }
     parse_fail(start, "unknown instruction");
-    return INST_MOV; // unreachable
 }
 
 // 宽度三个来源必须一致：后缀 / 固定宽度、src 寄存器、dst 寄存器
@@ -299,7 +310,7 @@ static void parse_instruction(inst_t *inst, const char *str)
 
     const char *s = str;
     skip_space(&s);
-    inst->op = parse_mnemonic(&s, &inst->width);
+    parse_mnemonic(&s, inst);
     skip_space(&s);
     if (*s != '\0') {
         parse_operand(&s, &inst->src);
@@ -383,13 +394,77 @@ static uint64_t pop64(core_t *cr)
     return value;
 }
 
+/* ================================================================
+ * ALU：标志位的唯一生产者
+ *
+ * 硬件里只有一个加法器。减法 d - s 就是 d + (~s) + 1：把 s 取反、进位输入置 1。
+ * 所以 add / sub / cmp 共用 adder，四个标志位也只在这里算一次：
+ *   CF  加法器最高位有没有进位（减法时取反，表示"借位"）    → 无符号比较用
+ *   ZF  结果是否为 0                                         → 相等比较用
+ *   SF  结果的符号位                                         → 有符号比较用
+ *   OF  两个同号数相加，结果却变号（有符号溢出）              → 有符号比较用
+ * 逻辑运算 and / or / xor 不会进位也不会溢出，CF = OF = 0。
+ * ================================================================ */
 // width 字节宽的数的符号位
 #define SIGN(x, width) (((x) >> ((width) * 8 - 1)) & 0x1)
+
+typedef enum { ALU_ADD, ALU_SUB, ALU_AND, ALU_OR, ALU_XOR } alu_op_t;
+
+// width 位宽的加法器：返回 (a + b + carry_in) 的低 width 字节，*carry_out 为最高位进位
+static uint64_t adder(uint64_t a, uint64_t b, int carry_in, int width, int *carry_out)
+{
+    uint64_t r = (a + b + (uint64_t)carry_in) & width_mask(width);
+    // 没进位时 r >= a（只有 b 和 carry_in 都为 0 才相等）；进位时结果绕回，r 比 a 小，
+    // carry_in 为 1 时还可能恰好绕回到 a
+    *carry_out = carry_in ? (r <= a) : (r < a);
+    return r;
+}
+
+static uint64_t alu(alu_op_t op, uint64_t d, uint64_t s, int width, cpu_flag_t *f)
+{
+    uint64_t r;
+    if (op == ALU_ADD || op == ALU_SUB) {
+        int sub   = (op == ALU_SUB);
+        uint64_t b = sub ? (~s & width_mask(width)) : s;  // 减法：加上 s 的反码，再进位 1
+        int carry;
+        r = adder(d, b, sub, width, &carry);
+        f->CF = sub ? !carry : carry;                      // 减法没有进位 = 发生了借位
+        f->OF = (SIGN(d, width) == SIGN(b, width)) && (SIGN(r, width) != SIGN(d, width));
+    } else {
+        r = op == ALU_AND ? (d & s) : op == ALU_OR ? (d | s) : (d ^ s);
+        f->CF = 0;
+        f->OF = 0;
+    }
+    f->ZF = (r == 0);
+    f->SF = SIGN(r, width);
+    return r;
+}
+
+// 跳转条件：标志位的消费者。cmp s, d 之后，各条件对应 d 与 s 的比较关系
+static int cond_holds(cond_t c, const cpu_flag_t *f)
+{
+    switch (c) {
+        case CC_ALWAYS: return 1;
+        case CC_E:      return f->ZF;
+        case CC_NE:     return !f->ZF;
+        case CC_L:      return f->SF != f->OF;                // 有符号：差为负且没溢出，或溢出后符号反了
+        case CC_GE:     return f->SF == f->OF;
+        case CC_LE:     return f->ZF || f->SF != f->OF;
+        case CC_G:      return !f->ZF && f->SF == f->OF;
+        case CC_B:      return f->CF;                         // 无符号：借位说明 d < s
+        case CC_AE:     return !f->CF;
+        case CC_BE:     return f->CF || f->ZF;
+        case CC_A:      return !f->CF && !f->ZF;
+        case CC_S:      return f->SF;
+        case CC_NS:     return !f->SF;
+    }
+    return 0;
+}
 
 /* ================================================================
  * 指令语义
  * 进入 handler 时 rip 已经指向下一条指令（见 instruction_cycle），
- * 顺序执行的指令不用管 rip；只有 call / ret / jmp 会改写它。
+ * 顺序执行的指令不用管 rip；只有 call / ret / 跳转会改写它。
  * mov / push / pop / call / ret 在 x86 上不影响标志位，所以这里也不碰 flags。
  * ================================================================ */
 #define SRC(in)          od_read(&(in)->src, cr, (in)->width)
@@ -422,30 +497,27 @@ static void ret_handler(const inst_t *in, core_t *cr)
     cr->rip = pop64(cr);
 }
 
-static void add_handler(const inst_t *in, core_t *cr)
+// add / sub / cmp / and / or / xor：同一个 handler，只差运算种类和是否写回
+static void alu_handler(const inst_t *in, core_t *cr)
 {
-    int w = in->width;
-    uint64_t s = SRC(in);
-    uint64_t d = DST(in);
-    uint64_t r = (d + s) & width_mask(w);
-    cr->flags.CF = (r < s);                                             // 无符号进位
-    cr->flags.ZF = (r == 0);
-    cr->flags.SF = SIGN(r, w);
-    cr->flags.OF = (SIGN(d, w) == SIGN(s, w)) && (SIGN(r, w) != SIGN(d, w));  // 同号相加变号
-    SET_DST(in, r);
+    alu_op_t op;
+    int writeback = 1;
+    switch (in->op) {
+        case INST_ADD: op = ALU_ADD; break;
+        case INST_SUB: op = ALU_SUB; break;
+        case INST_CMP: op = ALU_SUB; writeback = 0; break;
+        case INST_AND: op = ALU_AND; break;
+        case INST_OR:  op = ALU_OR;  break;
+        case INST_XOR: op = ALU_XOR; break;
+        default:       exec_fail("not an ALU instruction"); return;
+    }
+    uint64_t r = alu(op, DST(in), SRC(in), in->width, &cr->flags);
+    if (writeback) SET_DST(in, r);
 }
 
-static void sub_handler(const inst_t *in, core_t *cr)
+static void jcc_handler(const inst_t *in, core_t *cr)
 {
-    int w = in->width;
-    uint64_t s = SRC(in);
-    uint64_t d = DST(in);
-    uint64_t r = (d - s) & width_mask(w);
-    cr->flags.CF = (d < s);                                             // 无符号借位
-    cr->flags.ZF = (r == 0);
-    cr->flags.SF = SIGN(r, w);
-    cr->flags.OF = (SIGN(d, w) != SIGN(s, w)) && (SIGN(r, w) != SIGN(d, w));  // 异号相减变号
-    SET_DST(in, r);
+    if (cond_holds(in->cond, &cr->flags)) cr->rip = jump_target(&in->src, cr);
 }
 
 void init_handler_table() {
@@ -454,8 +526,13 @@ void init_handler_table() {
     handler_table[INST_POP]  = &pop_handler;
     handler_table[INST_CALL] = &call_handler;
     handler_table[INST_RET]  = &ret_handler;
-    handler_table[INST_ADD]  = &add_handler;
-    handler_table[INST_SUB]  = &sub_handler;
+    handler_table[INST_ADD]  = &alu_handler;
+    handler_table[INST_SUB]  = &alu_handler;
+    handler_table[INST_CMP]  = &alu_handler;
+    handler_table[INST_AND]  = &alu_handler;
+    handler_table[INST_OR]   = &alu_handler;
+    handler_table[INST_XOR]  = &alu_handler;
+    handler_table[INST_JCC]  = &jcc_handler;
 }
 
 void instruction_cycle(core_t *cr) {

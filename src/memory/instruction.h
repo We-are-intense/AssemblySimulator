@@ -8,18 +8,40 @@
 
 typedef enum OP 
 {
-    INST_MOV,           // 0
-    INST_PUSH,          // 1
-    INST_POP,           // 2
-    INST_LEAVE,         // 3
-    INST_CALL,          // 4
-    INST_RET,           // 5
-    INST_ADD,           // 6
-    INST_SUB,           // 7
-    INST_CMP,           // 8
-    INST_JNE,           // 9
-    INST_JMP,           // 10
+    INST_MOV,
+    INST_PUSH,
+    INST_POP,
+    INST_LEAVE,
+    INST_CALL,
+    INST_RET,
+    // 算术逻辑类：都交给同一个 ALU，只是运算种类和是否写回不同
+    INST_ADD,
+    INST_SUB,
+    INST_CMP,           // = sub，但不写回
+    INST_AND,
+    INST_OR,
+    INST_XOR,
+    // 跳转类：jmp / je / jne / jl ... 都是"条件成立就跳"，条件放在 inst_t.cond
+    INST_JCC,
 } op_t;
+
+// 跳转条件：每一种都是标志位的一个布尔表达式，见 instruction.c 的 cond_holds
+typedef enum COND
+{
+    CC_ALWAYS,  // jmp
+    CC_E,       // je  / jz   相等
+    CC_NE,      // jne / jnz  不等
+    CC_L,       // jl   有符号 <
+    CC_GE,      // jge  有符号 >=
+    CC_LE,      // jle  有符号 <=
+    CC_G,       // jg   有符号 >
+    CC_B,       // jb   无符号 <
+    CC_AE,      // jae  无符号 >=
+    CC_BE,      // jbe  无符号 <=
+    CC_A,       // ja   无符号 >
+    CC_S,       // js   结果为负
+    CC_NS,      // jns  结果非负
+} cond_t;
 
 
 
@@ -59,6 +81,7 @@ typedef struct INSTRUCT_STRUCT
 {
     op_t op;    // mov, push
     int  width; // 操作宽度（字节）1/2/4/8：来自后缀 b/w/l/q，或由寄存器操作数推断
+    cond_t cond; // 仅 INST_JCC 使用
     od_t src;
     od_t dst;
     char code[100];
