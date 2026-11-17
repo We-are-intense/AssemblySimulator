@@ -31,9 +31,13 @@ code_objs = $(patsubst %.c,$(OUTPUT_DIR)/%.o,$(code_srcs))
 $(EXECUTABLE) : $(code_objs)
 	$(CC) $(code_objs) -o $@
 
+# -MMD -MP 让编译器顺带生成 .d 依赖文件，头文件改动后引用它的 .o 会自动重编，
+# 否则改了结构体布局（如 register.h）而旧 .o 仍按旧偏移访问，运行结果会错
 $(OUTPUT_DIR)/%.o: %.c
 	mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -I$(SRC_DIR) -c $< -o $@
+	$(CC) $(CFLAGS) -MMD -MP -I$(SRC_DIR) -c $< -o $@
+
+-include $(code_objs:.o=.d)
 
 
 run:

@@ -6,6 +6,9 @@
 
 extern uint8_t mm[MM_LEN]; // physical memory
 
+uint64_t read_dram_virtual(uint64_t vaddr, int n);
+void write_dram_virtual(uint64_t vaddr, uint64_t data, int n);
+
 uint64_t read64bits_dram(uint64_t paddr);
 uint64_t read64bits_dram_virtual(uint64_t vaddr);
 void write64bits_dram(uint64_t paddr, uint64_t data);

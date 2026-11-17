@@ -6,71 +6,87 @@
 #include <string.h>
 #include <ctype.h>
 
-// pointer pointing to the function
-typedef void (*handler_t)(od_t *, od_t *, core_t *);
+typedef void (*handler_t)(const inst_t *, core_t *);
 handler_t handler_table[NUM_INSTRTYPE];
 
 /* ================================================================
- * 寄存器：名字 <-> 编号 <-> 地址
- * 解析阶段只把名字翻译成编号，不碰 CPU；执行阶段再用编号取地址。
+ * 寄存器：每个名字都是某个 64 位寄存器的一段位
+ *
+ *   %rax = rax 的 [0,64)   %eax = rax 的 [0,32)   %ax = rax 的 [0,16)
+ *   %al  = rax 的 [0,8)    %ah  = rax 的 [8,16)
+ *
+ * 所以一个名字只需要三个数：{哪个 gpr, 多宽, 从第几位开始}。
  * ================================================================ */
-#define NUM_REG_NAME 72
-static const char *reg_name_list[NUM_REG_NAME] = {
-    "%rax","%eax","%ax","%ah","%al",
-    "%rbx","%ebx","%bx","%bh","%bl",
-    "%rcx","%ecx","%cx","%ch","%cl",
-    "%rdx","%edx","%dx","%dh","%dl",
-    "%rsi","%esi","%si","%sih","%sil",
-    "%rdi","%edi","%di","%dih","%dil",
-    "%rbp","%ebp","%bp","%bph","%bpl",
-    "%rsp","%esp","%sp","%sph","%spl",
-    "%r8","%r8d","%r8w","%r8b",
-    "%r9","%r9d","%r9w","%r9b",
-    "%r10","%r10d","%r10w","%r10b",
-    "%r11","%r11d","%r11w","%r11b",
-    "%r12","%r12d","%r12w","%r12b",
-    "%r13","%r13d","%r13w","%r13b",
-    "%r14","%r14d","%r14w","%r14b",
-    "%r15","%r15d","%r15w","%r15b",
-};
+typedef struct
+{
+    const char *name;
+    uint8_t     id;    // gpr 编号
+    uint8_t     width; // 字节数
+    uint8_t     shift; // 位偏移，只有 %ah/%bh/%ch/%dh 是 8
+} reg_desc_t;
 
+#define GPR(n64, n32, n16, n8, ID) \
+    {n64, ID, 8, 0}, {n32, ID, 4, 0}, {n16, ID, 2, 0}, {n8, ID, 1, 0}
+
+static const reg_desc_t REGS[] = {
+    GPR("rax", "eax",  "ax",   "al",   RAX), {"ah", RAX, 1, 8},
+    GPR("rbx", "ebx",  "bx",   "bl",   RBX), {"bh", RBX, 1, 8},
+    GPR("rcx", "ecx",  "cx",   "cl",   RCX), {"ch", RCX, 1, 8},
+    GPR("rdx", "edx",  "dx",   "dl",   RDX), {"dh", RDX, 1, 8},
+    GPR("rsi", "esi",  "si",   "sil",  RSI),
+    GPR("rdi", "edi",  "di",   "dil",  RDI),
+    GPR("rbp", "ebp",  "bp",   "bpl",  RBP),
+    GPR("rsp", "esp",  "sp",   "spl",  RSP),
+    GPR("r8",  "r8d",  "r8w",  "r8b",  R8),
+    GPR("r9",  "r9d",  "r9w",  "r9b",  R9),
+    GPR("r10", "r10d", "r10w", "r10b", R10),
+    GPR("r11", "r11d", "r11w", "r11b", R11),
+    GPR("r12", "r12d", "r12w", "r12b", R12),
+    GPR("r13", "r13d", "r13w", "r13b", R13),
+    GPR("r14", "r14d", "r14w", "r14b", R14),
+    GPR("r15", "r15d", "r15w", "r15b", R15),
+};
+#define NUM_REGS ((int)(sizeof(REGS) / sizeof(REGS[0])))
+
+// 名字不带 '%'
 static int reg_id(const char *name)
 {
-    for (int i = 0; i < NUM_REG_NAME; ++i) {
-        if (strcmp(name, reg_name_list[i]) == 0) return i;
+    for (int i = 0; i < NUM_REGS; ++i) {
+        if (strcmp(name, REGS[i].name) == 0) return i;
     }
     return REG_NONE;
 }
 
-static uint64_t *reg_ptr(core_t *cr, int id)
+static uint64_t width_mask(int width)
 {
-    reg_t *r = &(cr->reg);
-    void *addr[NUM_REG_NAME] = {
-        &r->rax,&r->eax,&r->ax,&r->ah,&r->al,
-        &r->rbx,&r->ebx,&r->bx,&r->bh,&r->bl,
-        &r->rcx,&r->ecx,&r->cx,&r->ch,&r->cl,
-        &r->rdx,&r->edx,&r->dx,&r->dh,&r->dl,
-        &r->rsi,&r->esi,&r->si,&r->sih,&r->sil,
-        &r->rdi,&r->edi,&r->di,&r->dih,&r->dil,
-        &r->rbp,&r->ebp,&r->bp,&r->bph,&r->bpl,
-        &r->rsp,&r->esp,&r->sp,&r->sph,&r->spl,
-        &r->r8,&r->r8d,&r->r8w,&r->r8b,
-        &r->r9,&r->r9d,&r->r9w,&r->r9b,
-        &r->r10,&r->r10d,&r->r10w,&r->r10b,
-        &r->r11,&r->r11d,&r->r11w,&r->r11b,
-        &r->r12,&r->r12d,&r->r12w,&r->r12b,
-        &r->r13,&r->r13d,&r->r13w,&r->r13b,
-        &r->r14,&r->r14d,&r->r14w,&r->r14b,
-        &r->r15,&r->r15d,&r->r15w,&r->r15b,
-    };
-    assert(id >= 0 && id < NUM_REG_NAME);
-    return (uint64_t *)addr[id];
+    return width >= 8 ? ~0ULL : (1ULL << (width * 8)) - 1;
+}
+
+static uint64_t reg_read(const core_t *cr, int r)
+{
+    const reg_desc_t *d = &REGS[r];
+    return (cr->reg.gpr[d->id] >> d->shift) & width_mask(d->width);
+}
+
+static void reg_write(core_t *cr, int r, uint64_t value)
+{
+    const reg_desc_t *d = &REGS[r];
+    uint64_t *g = &cr->reg.gpr[d->id];
+    if (d->width == 4) {
+        // x86-64 规则：写 32 位寄存器时高 32 位清零
+        *g = value & 0xffffffffULL;
+    } else {
+        // 写 8/16/64 位：只替换自己那一段，其余位保持不变
+        uint64_t m = width_mask(d->width) << d->shift;
+        *g = (*g & ~m) | ((value << d->shift) & m);
+    }
 }
 
 /* ================================================================
  * 解析：一个指针在字符串上往前走，按语法一段段"吃掉"
  *
- *   instruction = mnemonic [ operand [ ',' operand ] ]
+ *   instruction = mnemonic[suffix] [ operand [ ',' operand ] ]
+ *   suffix      = 'b' | 'w' | 'l' | 'q'                    宽度 1/2/4/8
  *   operand     = '$' num                                  立即数
  *               | reg                                      寄存器
  *               | [num] [ '(' [reg] [ ',' reg [ ',' num ] ] ')' ]   内存
@@ -122,14 +138,23 @@ static int parse_reg(const char **s)
 {
     const char *start = *s;
     if (**s != '%') parse_fail(*s, "expect register");
-    char name[8] = {'%'};
-    int len = 1;
     (*s)++;
+    char name[8] = {0};
+    int len = 0;
     while (isalnum((unsigned char)**s) && len < (int)sizeof(name) - 1) {
         name[len++] = *(*s)++;
     }
     int id = reg_id(name);
     if (id == REG_NONE) parse_fail(start, "unknown register");
+    return id;
+}
+
+// 地址计算只用 64 位寄存器（不支持 32 位地址前缀）
+static int parse_addr_reg(const char **s)
+{
+    const char *start = *s;
+    int id = parse_reg(s);
+    if (REGS[id].width != 8) parse_fail(start, "address register must be 64-bit");
     return id;
 }
 
@@ -157,9 +182,9 @@ static void parse_operand(const char **s, od_t *od)
 
     if (**s != '(') od->imm = parse_num(s);           // [disp]
     if (!accept(s, '(')) return;                      // 只有 disp：绝对寻址
-    if (**s == '%') od->base = parse_reg(s);          // [base]
+    if (**s == '%') od->base = parse_addr_reg(s);     // [base]
     if (accept(s, ',')) {
-        od->index = parse_reg(s);                     // index
+        od->index = parse_addr_reg(s);                // index
         if (accept(s, ',')) {
             const char *at = *s;
             od->scale = (uint64_t)parse_num(s);       // [scale]
@@ -171,34 +196,82 @@ static void parse_operand(const char **s, od_t *od)
     expect(s, ')');
 }
 
-static const struct { const char *name; op_t op; } mnemonic_table[] = {
-    {"mov",  INST_MOV},  {"movq",  INST_MOV},
-    {"push", INST_PUSH}, {"pop",   INST_POP},
-    {"call", INST_CALL}, {"callq", INST_CALL},
-    {"ret",  INST_RET},  {"retq",  INST_RET},
-    {"add",  INST_ADD},  {"sub",   INST_SUB},
-    {"cmpq", INST_CMP},  {"jne",   INST_JNE},
-    {"jmp",  INST_JMP},
+// 助记符表只放词根；fixed_width 非 0 表示宽度固定（栈和跳转类指令在 64 位模式下总是 8 字节）
+static const struct { const char *name; op_t op; int fixed_width; } MNEMONICS[] = {
+    {"mov",  INST_MOV,  0},
+    {"add",  INST_ADD,  0},
+    {"sub",  INST_SUB,  0},
+    {"cmp",  INST_CMP,  0},
+    {"push", INST_PUSH, 8},
+    {"pop",  INST_POP,  8},
+    {"call", INST_CALL, 8},
+    {"ret",  INST_RET,  8},
+    {"jmp",  INST_JMP,  8},
+    {"jne",  INST_JNE,  8},
 };
 
-static op_t parse_mnemonic(const char **s)
+static int suffix_width(char c)
+{
+    switch (c) {
+        case 'b': return 1;
+        case 'w': return 2;
+        case 'l': return 4;
+        case 'q': return 8;
+        default:  return 0;
+    }
+}
+
+// 解析助记符，返回指令；*width 置为后缀或固定宽度给出的宽度，都没有时为 0
+static op_t parse_mnemonic(const char **s, int *width)
 {
     const char *start = *s;
-    char name[16] = {0};
+    char word[16] = {0};
     int len = 0;
-    while (isalpha((unsigned char)**s) && len < (int)sizeof(name) - 1) {
-        name[len++] = *(*s)++;
+    while (isalpha((unsigned char)**s) && len < (int)sizeof(word) - 1) {
+        word[len++] = *(*s)++;
     }
-    for (size_t i = 0; i < sizeof(mnemonic_table) / sizeof(mnemonic_table[0]); i++) {
-        if (strcmp(name, mnemonic_table[i].name) == 0) return mnemonic_table[i].op;
+
+    for (size_t i = 0; i < sizeof(MNEMONICS) / sizeof(MNEMONICS[0]); i++) {
+        const char *root = MNEMONICS[i].name;
+        size_t root_len = strlen(root);
+        int suffix = 0;
+
+        if (strcmp(word, root) == 0) {
+            suffix = 0;                                   // 没写后缀：mov
+        } else if ((size_t)len == root_len + 1 && strncmp(word, root, root_len) == 0
+                   && suffix_width(word[root_len])) {
+            suffix = suffix_width(word[root_len]);        // 带后缀：movl
+        } else {
+            continue;
+        }
+
+        int fixed = MNEMONICS[i].fixed_width;
+        if (fixed && suffix && suffix != fixed) parse_fail(start, "invalid suffix for this instruction");
+        *width = fixed ? fixed : suffix;
+        return MNEMONICS[i].op;
     }
     parse_fail(start, "unknown instruction");
     return INST_MOV; // unreachable
 }
 
+// 宽度三个来源必须一致：后缀 / 固定宽度、src 寄存器、dst 寄存器
+static void infer_width(inst_t *inst, const char *str)
+{
+    const od_t *ods[2] = {&inst->src, &inst->dst};
+    for (int i = 0; i < 2; i++) {
+        if (ods[i]->type != OD_REG) continue;
+        int w = REGS[ods[i]->reg].width;
+        if (inst->width == 0) inst->width = w;
+        else if (inst->width != w) parse_fail(str, "operand size mismatch");
+    }
+    if (inst->width == 0 && inst->src.type != OD_EMPTY) {
+        parse_fail(str, "operand size is ambiguous, add suffix b/w/l/q");
+    }
+}
+
 static const char *reg_label(int id)
 {
-    return id == REG_NONE ? "-" : reg_name_list[id];
+    return id == REG_NONE ? "-" : REGS[id].name;
 }
 
 static void print_od(const char *tag, const od_t *od)
@@ -208,7 +281,7 @@ static void print_od(const char *tag, const od_t *od)
             printf("  %s: IMM $%lld\n", tag, (long long)od->imm);
             break;
         case OD_REG:
-            printf("  %s: REG %s\n", tag, reg_label(od->reg));
+            printf("  %s: REG %%%s\n", tag, reg_label(od->reg));
             break;
         case OD_MEM:
             printf("  %s: MEM disp=%lld base=%s index=%s scale=%llu\n", tag,
@@ -223,11 +296,10 @@ static void print_od(const char *tag, const od_t *od)
 static void parse_instruction(inst_t *inst, const char *str)
 {
     memset(inst, 0, sizeof(*inst));
-    printf("parse: %s\n", str);
 
     const char *s = str;
     skip_space(&s);
-    inst->op = parse_mnemonic(&s);
+    inst->op = parse_mnemonic(&s, &inst->width);
     skip_space(&s);
     if (*s != '\0') {
         parse_operand(&s, &inst->src);
@@ -241,7 +313,9 @@ static void parse_instruction(inst_t *inst, const char *str)
     if (inst->src.type == OD_MEM && inst->dst.type == OD_MEM) {
         parse_fail(str, "both operands cannot be memory");
     }
+    infer_width(inst, str);
 
+    printf("parse: %s  (width=%d)\n", str, inst->width);
     print_od("src", &inst->src);
     print_od("dst", &inst->dst);
 }
@@ -250,8 +324,8 @@ static void parse_instruction(inst_t *inst, const char *str)
  * 操作数的读与写
  *
  * 操作数在指令里只扮演两种角色："从这里取一个值" 或 "把值存到这里"。
- * 把这两个动作做成 od_read / od_write，三种操作数的差异就被关在这两个
- * 函数里面，handler 只写指令自己的语义，不再按操作数类型分支。
+ * 三种操作数的差异关在 od_read / od_write 里；宽度作为参数一并传入，
+ * 寄存器的位段规则在 reg_read / reg_write，内存按 width 字节访问。
  * ================================================================ */
 static void exec_fail(const char *what)
 {
@@ -259,29 +333,30 @@ static void exec_fail(const char *what)
     abort();
 }
 
-static uint64_t effective_address(const od_t *od, core_t *cr)
+static uint64_t effective_address(const od_t *od, const core_t *cr)
 {
     uint64_t addr = (uint64_t)od->imm;
-    if (od->base  != REG_NONE) addr += *reg_ptr(cr, od->base);
-    if (od->index != REG_NONE) addr += *reg_ptr(cr, od->index) * od->scale;
+    if (od->base  != REG_NONE) addr += reg_read(cr, od->base);
+    if (od->index != REG_NONE) addr += reg_read(cr, od->index) * od->scale;
     return addr;
 }
 
-static uint64_t od_read(const od_t *od, core_t *cr)
+// 寄存器操作数的宽度已在解析时保证与 width 一致
+static uint64_t od_read(const od_t *od, const core_t *cr, int width)
 {
     switch (od->type) {
-        case OD_IMM: return (uint64_t)od->imm;
-        case OD_REG: return *reg_ptr(cr, od->reg);
-        case OD_MEM: return read64bits_dram_virtual(effective_address(od, cr));
+        case OD_IMM: return (uint64_t)od->imm & width_mask(width);
+        case OD_REG: return reg_read(cr, od->reg);
+        case OD_MEM: return read_dram_virtual(effective_address(od, cr), width);
         default:     exec_fail("read from empty operand"); return 0;
     }
 }
 
-static void od_write(const od_t *od, core_t *cr, uint64_t value)
+static void od_write(const od_t *od, core_t *cr, int width, uint64_t value)
 {
     switch (od->type) {
-        case OD_REG: *reg_ptr(cr, od->reg) = value; break;
-        case OD_MEM: write64bits_dram_virtual(effective_address(od, cr), value); break;
+        case OD_REG: reg_write(cr, od->reg, value); break;
+        case OD_MEM: write_dram_virtual(effective_address(od, cr), value, width); break;
         default:     exec_fail("operand is not writable");
     }
 }
@@ -289,26 +364,27 @@ static void od_write(const od_t *od, core_t *cr, uint64_t value)
 // call / jmp 的操作数表示"跳到哪里"，不是"取什么值"：
 //   callq $0x400540、callq 0x400540 → 跳到 0x400540
 //   callq %rax                       → 跳到 rax 的值
-static uint64_t jump_target(const od_t *od, core_t *cr)
+static uint64_t jump_target(const od_t *od, const core_t *cr)
 {
     if (od->type == OD_MEM) return effective_address(od, cr);
-    return od_read(od, cr);
+    return od_read(od, cr, 8);
 }
 
 static void push64(core_t *cr, uint64_t value)
 {
     cr->reg.rsp -= 8;
-    write64bits_dram_virtual(cr->reg.rsp, value);
+    write_dram_virtual(cr->reg.rsp, value, 8);
 }
 
 static uint64_t pop64(core_t *cr)
 {
-    uint64_t value = read64bits_dram_virtual(cr->reg.rsp);
+    uint64_t value = read_dram_virtual(cr->reg.rsp, 8);
     cr->reg.rsp += 8;
     return value;
 }
 
-#define SIGN(x) (((x) >> 63) & 0x1)
+// width 字节宽的数的符号位
+#define SIGN(x, width) (((x) >> ((width) * 8 - 1)) & 0x1)
 
 /* ================================================================
  * 指令语义
@@ -316,54 +392,60 @@ static uint64_t pop64(core_t *cr)
  * 顺序执行的指令不用管 rip；只有 call / ret / jmp 会改写它。
  * mov / push / pop / call / ret 在 x86 上不影响标志位，所以这里也不碰 flags。
  * ================================================================ */
-static void mov_handler(od_t *src, od_t *dst, core_t *cr)
+#define SRC(in)          od_read(&(in)->src, cr, (in)->width)
+#define DST(in)          od_read(&(in)->dst, cr, (in)->width)
+#define SET_DST(in, v)   od_write(&(in)->dst, cr, (in)->width, (v))
+
+static void mov_handler(const inst_t *in, core_t *cr)
 {
-    od_write(dst, cr, od_read(src, cr));
+    SET_DST(in, SRC(in));
 }
 
-static void push_handler(od_t *src, od_t *dst, core_t *cr)
+static void push_handler(const inst_t *in, core_t *cr)
 {
-    push64(cr, od_read(src, cr));
+    push64(cr, SRC(in));
 }
 
-static void pop_handler(od_t *src, od_t *dst, core_t *cr)
+static void pop_handler(const inst_t *in, core_t *cr)
 {
-    od_write(src, cr, pop64(cr));
+    od_write(&in->src, cr, 8, pop64(cr));
 }
 
-static void call_handler(od_t *src, od_t *dst, core_t *cr)
+static void call_handler(const inst_t *in, core_t *cr)
 {
     push64(cr, cr->rip);              // 返回地址 = 下一条指令
-    cr->rip = jump_target(src, cr);
+    cr->rip = jump_target(&in->src, cr);
 }
 
-static void ret_handler(od_t *src, od_t *dst, core_t *cr)
+static void ret_handler(const inst_t *in, core_t *cr)
 {
     cr->rip = pop64(cr);
 }
 
-static void add_handler(od_t *src, od_t *dst, core_t *cr)
+static void add_handler(const inst_t *in, core_t *cr)
 {
-    uint64_t s = od_read(src, cr);
-    uint64_t d = od_read(dst, cr);
-    uint64_t r = d + s;
-    cr->flags.CF = (r < s);                                       // 无符号进位
+    int w = in->width;
+    uint64_t s = SRC(in);
+    uint64_t d = DST(in);
+    uint64_t r = (d + s) & width_mask(w);
+    cr->flags.CF = (r < s);                                             // 无符号进位
     cr->flags.ZF = (r == 0);
-    cr->flags.SF = SIGN(r);
-    cr->flags.OF = (SIGN(d) == SIGN(s)) && (SIGN(r) != SIGN(d));  // 同号相加变号
-    od_write(dst, cr, r);
+    cr->flags.SF = SIGN(r, w);
+    cr->flags.OF = (SIGN(d, w) == SIGN(s, w)) && (SIGN(r, w) != SIGN(d, w));  // 同号相加变号
+    SET_DST(in, r);
 }
 
-static void sub_handler(od_t *src, od_t *dst, core_t *cr)
+static void sub_handler(const inst_t *in, core_t *cr)
 {
-    uint64_t s = od_read(src, cr);
-    uint64_t d = od_read(dst, cr);
-    uint64_t r = d - s;
-    cr->flags.CF = (d < s);                                       // 无符号借位
+    int w = in->width;
+    uint64_t s = SRC(in);
+    uint64_t d = DST(in);
+    uint64_t r = (d - s) & width_mask(w);
+    cr->flags.CF = (d < s);                                             // 无符号借位
     cr->flags.ZF = (r == 0);
-    cr->flags.SF = SIGN(r);
-    cr->flags.OF = (SIGN(d) != SIGN(s)) && (SIGN(r) != SIGN(d));  // 异号相减变号
-    od_write(dst, cr, r);
+    cr->flags.SF = SIGN(r, w);
+    cr->flags.OF = (SIGN(d, w) != SIGN(s, w)) && (SIGN(r, w) != SIGN(d, w));  // 异号相减变号
+    SET_DST(in, r);
 }
 
 void init_handler_table() {
@@ -387,7 +469,7 @@ void instruction_cycle(core_t *cr) {
 
     handler_t handler = handler_table[instr.op];
     if (handler == NULL) exec_fail("instruction not implemented");
-    handler(&(instr.src), &(instr.dst), cr);
+    handler(&instr, cr);
 }
 
 void test_parse_inst(uint64_t value, core_t *cr) {

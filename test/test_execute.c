@@ -57,7 +57,7 @@ static void test_mov(void)
     CHECK(cr->reg.rcx == 0x12, "mem → reg: rcx=0x%llx", cr->reg.rcx);
 
     // 原实现没有这个分支，会 assert(0)
-    exec(cr, "mov $0x34,-0x10(%rbp)");
+    exec(cr, "movq $0x34,-0x10(%rbp)");
     CHECK(read64bits_dram_virtual(RBP - 0x10) == 0x34, "imm → mem");
 
     // mov 不影响标志位
@@ -115,7 +115,7 @@ static void test_add_sub(void)
     exec(cr, "add $0x2,%rax");
     CHECK(cr->reg.rax == 10, "add imm,reg: rax=%llu", cr->reg.rax);
 
-    exec(cr, "mov $0x7,-0x8(%rbp)");
+    exec(cr, "movq $0x7,-0x8(%rbp)");
     exec(cr, "add %rax,-0x8(%rbp)");
     CHECK(read64bits_dram_virtual(RBP - 8) == 17, "add reg,mem");
 

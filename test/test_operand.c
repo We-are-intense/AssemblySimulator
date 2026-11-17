@@ -41,8 +41,8 @@ static void check_mem(const char *text, int64_t disp, int base, int index,
 static void test_memory_operands(core_t *cr)
 {
     puts("== 内存操作数：disp + base + index * scale");
-    const int RSI = reg_id("%rsi");
-    const int RDI = reg_id("%rdi");
+    const int RSI = reg_id("rsi");
+    const int RDI = reg_id("rdi");
     const int N   = REG_NONE;
     cr->reg.rsi = 0x100;
     cr->reg.rdi = 0x10;
@@ -69,11 +69,11 @@ static void test_instructions(void)
     parse_instruction(&in, "mov    $0x12,%rax");
     CHECK(in.op == INST_MOV, "op=%d，应为 INST_MOV", in.op);
     CHECK(in.src.type == OD_IMM && in.src.imm == 0x12, "src 应为 IMM $0x12");
-    CHECK(in.dst.type == OD_REG && in.dst.reg == reg_id("%rax"), "dst 应为 REG %%rax");
+    CHECK(in.dst.type == OD_REG && in.dst.reg == reg_id("rax"), "dst 应为 REG %%rax");
 
     parse_instruction(&in, "mov    %rdi,-0x18(%rbp)");
-    CHECK(in.src.type == OD_REG && in.src.reg == reg_id("%rdi"), "src 应为 REG %%rdi");
-    CHECK(in.dst.type == OD_MEM && in.dst.imm == -0x18 && in.dst.base == reg_id("%rbp"),
+    CHECK(in.src.type == OD_REG && in.src.reg == reg_id("rdi"), "src 应为 REG %%rdi");
+    CHECK(in.dst.type == OD_MEM && in.dst.imm == -0x18 && in.dst.base == reg_id("rbp"),
           "dst 应为 MEM -0x18(%%rbp)");
 
     parse_instruction(&in, "push   %rbp");

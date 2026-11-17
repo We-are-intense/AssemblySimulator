@@ -3,36 +3,40 @@
 
 uint8_t mm[MM_LEN]; // physical memory
 
-uint64_t read64bits_dram(uint64_t paddr) {
-    uint64_t val = 0x0;
-
-    val += (((uint64_t)mm[paddr + 0 ]) << 0);
-    val += (((uint64_t)mm[paddr + 1 ]) << 8);
-    val += (((uint64_t)mm[paddr + 2 ]) << 16);
-    val += (((uint64_t)mm[paddr + 3 ]) << 24);
-    val += (((uint64_t)mm[paddr + 4 ]) << 32);
-    val += (((uint64_t)mm[paddr + 5 ]) << 40);
-    val += (((uint64_t)mm[paddr + 6 ]) << 48);
-    val += (((uint64_t)mm[paddr + 7 ]) << 56);
+// 小端序：低地址存低字节。n 为访问宽度（1/2/4/8 字节）。
+// 每个字节单独做地址转换，跨过 MM_LEN 边界时也不会越界。
+uint64_t read_dram_virtual(uint64_t vaddr, int n) {
+    uint64_t val = 0;
+    for (int i = 0; i < n; i++) {
+        val |= (uint64_t)mm[va2pa(vaddr + i)] << (8 * i);
+    }
     return val;
 }
 
-uint64_t read64bits_dram_virtual(uint64_t vaddr) {
-    return read64bits_dram(va2pa(vaddr));
+void write_dram_virtual(uint64_t vaddr, uint64_t data, int n) {
+    for (int i = 0; i < n; i++) {
+        mm[va2pa(vaddr + i)] = (data >> (8 * i)) & 0xff;
+    }
+}
+
+uint64_t read64bits_dram(uint64_t paddr) {
+    uint64_t val = 0;
+    for (int i = 0; i < 8; i++) {
+        val |= (uint64_t)mm[paddr + i] << (8 * i);
+    }
+    return val;
 }
 
 void write64bits_dram(uint64_t paddr, uint64_t data) {
-    mm[paddr + 0] = (data >> 0 ) & 0xff;
-    mm[paddr + 1] = (data >> 8 ) & 0xff;
-    mm[paddr + 2] = (data >> 16) & 0xff;
-    mm[paddr + 3] = (data >> 24) & 0xff;
-    mm[paddr + 4] = (data >> 32) & 0xff;
-    mm[paddr + 5] = (data >> 40) & 0xff;
-    mm[paddr + 6] = (data >> 48) & 0xff;
-    mm[paddr + 7] = (data >> 56) & 0xff;
+    for (int i = 0; i < 8; i++) {
+        mm[paddr + i] = (data >> (8 * i)) & 0xff;
+    }
+}
+
+uint64_t read64bits_dram_virtual(uint64_t vaddr) {
+    return read_dram_virtual(vaddr, 8);
 }
 
 void write64bits_dram_virtual(uint64_t vaddr, uint64_t data) {
-    write64bits_dram(va2pa(vaddr), data);
+    write_dram_virtual(vaddr, data, 8);
 }
-
